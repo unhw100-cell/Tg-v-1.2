@@ -1,0 +1,6 @@
+{
+  "summary":  "Architecture and implementation plan for RustGram: fixing the TDLib + Rust JNI bridge via Android NDK cross-compilation, upgrading the Rust core engine, and crafting an authentic Telegram for iOS visual experience on Android 16.",
+  "updatedAt":  "2026-11-14T09:36:40.960956450Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

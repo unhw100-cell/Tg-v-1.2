@@ -1,0 +1,18 @@
+[package]
+name = "rustgram-tests"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+rustgram-core = { path = "../rust-core/core" }
+rustgram-networking = { path = "../rust-core/networking" }
+rustgram-messaging = { path = "../rust-core/messaging" }
+rustgram-authentication = { path = "../rust-core/authentication" }
+rustgram-database = { path = "../rust-core/database" }
+rustgram-media = { path = "../rust-core/media" }
+rustgram-encryption = { path = "../rust-core/encryption" }
+rustgram-synchronization = { path = "../rust-core/synchronization" }
+rustgram-tdlib = { path = "../tdlib" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

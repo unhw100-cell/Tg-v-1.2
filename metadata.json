@@ -1,0 +1,6 @@
+{
+  "name": "RustGram",
+  "description": "High-performance Telegram client for Android 16 powered by Rust core and TDLib MTProto engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

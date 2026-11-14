@@ -1,0 +1,15 @@
+# rust-core workspace proxy
+[package]
+name = "rustgram-all"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+rustgram-core = { path = "core" }
+rustgram-networking = { path = "networking" }
+rustgram-messaging = { path = "messaging" }
+rustgram-authentication = { path = "authentication" }
+rustgram-database = { path = "database" }
+rustgram-media = { path = "media" }
+rustgram-encryption = { path = "encryption" }
+rustgram-synchronization = { path = "synchronization" }
