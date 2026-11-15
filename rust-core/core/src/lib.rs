@@ -147,10 +147,18 @@ impl TelegramMessage {
         match &self.content {
             MessageContent::Text { text } => text.clone(),
             MessageContent::Photo { caption, .. } => {
-                if caption.is_empty() { "📷 Photo".into() } else { format!("📷 {}", caption) }
+                if caption.is_empty() {
+                    "📷 Photo".into()
+                } else {
+                    format!("📷 {}", caption)
+                }
             }
             MessageContent::Video { caption, .. } => {
-                if caption.is_empty() { "📹 Video".into() } else { format!("📹 {}", caption) }
+                if caption.is_empty() {
+                    "📹 Video".into()
+                } else {
+                    format!("📹 {}", caption)
+                }
             }
             MessageContent::VoiceNote { duration_sec, .. } => {
                 format!("🎤 Voice message ({}s)", duration_sec)
@@ -158,7 +166,11 @@ impl TelegramMessage {
             MessageContent::Document { file_name, .. } => format!("📎 {}", file_name),
             MessageContent::Sticker { emoji, .. } => format!("{} Sticker", emoji),
             MessageContent::Call { is_missed, .. } => {
-                if *is_missed { "☎️ Missed Call".into() } else { "📞 Phone Call".into() }
+                if *is_missed {
+                    "☎️ Missed Call".into()
+                } else {
+                    "📞 Phone Call".into()
+                }
             }
         }
     }

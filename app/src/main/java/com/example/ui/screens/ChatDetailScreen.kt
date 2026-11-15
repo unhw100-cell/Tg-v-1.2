@@ -8,10 +8,9 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,18 +28,18 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Forward
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -64,11 +63,15 @@ import com.example.repository.TelegramRepository
 import com.example.tdlib.MediaType
 import com.example.tdlib.TelegramChatModel
 import com.example.tdlib.TelegramMessageModel
+import com.example.ui.components.TelegramChatWallpaper
+import com.example.ui.components.liquidGlass
+import com.example.ui.i18n.AppStrings
+import com.example.ui.i18n.LocalAppStrings
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatDetailScreen(
     repository: TelegramRepository,
@@ -76,11 +79,13 @@ fun ChatDetailScreen(
     onBack: () -> Unit,
     onOpenProfile: () -> Unit
 ) {
+    val strings = LocalAppStrings.current
+    val glass = LocalLiquidGlassPalette.current
     val context = LocalContext.current
     val chats by repository.chats.collectAsState()
     val currentChat = chats.find { it.id == chat.id } ?: chat
     val messagesMap by repository.messages.collectAsState()
-    val isDarkMode by repository.isDarkMode.collectAsState()
+    val wallpaperStyle by repository.wallpaperStyle.collectAsState()
     val isRecordingVoice by repository.isRecordingVoice.collectAsState()
     val recordingDurationSec by repository.recordingDurationSec.collectAsState()
     val playingMessageId by repository.playingMessageId.collectAsState()
@@ -92,12 +97,15 @@ fun ChatDetailScreen(
     var editingMessage by remember { mutableStateOf<TelegramMessageModel?>(null) }
     var selectedMessageForOptions by remember { mutableStateOf<TelegramMessageModel?>(null) }
     var messageToForward by remember { mutableStateOf<TelegramMessageModel?>(null) }
+    var viewingMediaMessage by remember { mutableStateOf<TelegramMessageModel?>(null) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
+    var showPollCreator by remember { mutableStateOf(false) }
+    var showSendOptionsMenu by remember { mutableStateOf(false) }
+    var showTimerDialog by remember { mutableStateOf(false) }
     var showStickerPanel by remember { mutableStateOf(false) }
     var isVideoNoteMode by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
 
     // Photo Picker (Zero-permission Google Play compliant)
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -114,16 +122,10 @@ fun ChatDetailScreen(
         }
     }
 
-    // Audio permission launcher for Voice Notes
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            repository.startVoiceRecording()
-        } else {
-            // Fallback simulated voice recording if user declines permission
-            repository.startVoiceRecording()
-        }
+    ) {
+        repository.startVoiceRecording()
     }
 
     LaunchedEffect(chatMessages.size) {
@@ -132,120 +134,172 @@ fun ChatDetailScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-                CenterAlignedTopAppBar(
-                    navigationIcon = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Wallpaper Layer beneath floating Liquid Glass chrome
+        TelegramChatWallpaper(
+            isDarkMode = glass.isDark,
+            wallpaperStyle = wallpaperStyle,
+            accentColor = glass.accent,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top Floating Liquid Glass Header
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(50),
+                            strong = true,
+                            accentTint = if (currentChat.isSecret) TelegramSecretGreen else null
+                        )
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable(onClick = onBack)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .testTag("chat_back_button")
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = strings.back,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(2.dp))
+                        Text(
+                            text = strings.tabChats,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(onClick = onOpenProfile)
+                            .padding(horizontal = 6.dp)
+                            .testTag("chat_header_profile_btn")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (currentChat.isSecret) {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = "Secret",
+                                    tint = TelegramSecretGreen,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = currentChat.title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (currentChat.isSecret) TelegramSecretGreen else MaterialTheme.colorScheme.onBackground
+                            )
+                            if (currentChat.isVerified) {
+                                Spacer(Modifier.width(4.dp))
+                                Icon(
+                                    Icons.Default.Verified,
+                                    contentDescription = "Verified",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = when {
+                                currentChat.isSecret -> "${strings.selfDestructTimer}: ${if (currentChat.selfDestructSec > 0) "${currentChat.selfDestructSec}s" else strings.timerOff}"
+                                currentChat.type == "channel" -> "${currentChat.memberCount.coerceAtLeast(1)} ${strings.subscribersSuffix}"
+                                currentChat.type == "supergroup" || currentChat.type == "group" -> "${currentChat.memberCount.coerceAtLeast(1)} ${strings.membersSuffix}"
+                                currentChat.type == "bot" -> "bot"
+                                currentChat.isOnline -> strings.onlineStatus
+                                else -> strings.lastSeenRecently
+                            },
+                            fontSize = 11.sp,
+                            color = if (currentChat.isSecret) TelegramSecretGreen
+                            else if (currentChat.isOnline) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (currentChat.isSecret) {
+                        IconButton(
+                            onClick = { showTimerDialog = true },
                             modifier = Modifier
-                                .clickable(onClick = onBack)
-                                .padding(horizontal = 8.dp, vertical = 10.dp)
-                                .testTag("chat_back_button")
+                                .size(38.dp)
+                                .testTag("secret_timer_btn")
                         ) {
                             Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back to Chats",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Chats",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 17.sp
+                                Icons.Default.Timer,
+                                contentDescription = strings.selfDestructTimer,
+                                tint = TelegramSecretGreen,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                    },
-                    title = {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable(onClick = onOpenProfile)
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                                .testTag("chat_header_profile_btn")
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = currentChat.title,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 17.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                if (currentChat.isVerified) {
-                                    Spacer(Modifier.width(4.dp))
-                                    Icon(
-                                        Icons.Default.Verified,
-                                        contentDescription = "Verified",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = when (currentChat.type) {
-                                    "channel" -> "${currentChat.memberCount.coerceAtLeast(1)} subscribers"
-                                    "supergroup", "group" -> "${currentChat.memberCount.coerceAtLeast(1)} members"
-                                    "bot" -> "bot"
-                                    else -> if (currentChat.isOnline) "online" else "last seen recently"
-                                },
-                                fontSize = 12.sp,
-                                color = if (currentChat.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    actions = {
-                        Box(
-                            modifier = Modifier
-                                .padding(end = 10.dp)
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable(onClick = onOpenProfile)
-                                .testTag("chat_avatar_profile_btn"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (currentChat.title == "Saved Messages") {
-                                Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            } else {
-                                Text(
-                                    text = currentChat.title.take(1).uppercase(),
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    fontSize = 15.sp
-                                )
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
+                    }
 
-                // Pinned message bar
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (currentChat.isSecret) TelegramSecretGreen else MaterialTheme.colorScheme.primary)
+                            .clickable(onClick = onOpenProfile)
+                            .testTag("chat_avatar_profile_btn"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (currentChat.title == "Saved Messages") {
+                            Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        } else {
+                            Text(
+                                text = currentChat.title.take(1).uppercase(),
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+                }
+
+                // Floating Pinned Message Pill
                 currentChat.pinnedMessageText?.let { pinnedText ->
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), thickness = 0.5.dp)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                            .liquidGlass(shape = RoundedCornerShape(16.dp), strong = false, elevation = 3.dp)
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
                                 .width(2.5.dp)
-                                .height(28.dp)
+                                .height(26.dp)
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(MaterialTheme.colorScheme.primary)
                         )
                         Spacer(Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Pinned Message",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                text = strings.pinnedMessage,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
@@ -258,77 +312,89 @@ fun ChatDetailScreen(
                         }
                         Icon(
                             Icons.Default.PushPin,
-                            contentDescription = "Pinned",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), thickness = 0.5.dp)
             }
-        },
-        bottomBar = {
+
+            // Messages Stream
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                items(chatMessages, key = { it.id }) { message ->
+                    SwipeableMessageBubble(
+                        message = message,
+                        strings = strings,
+                        isPlaying = playingMessageId == message.id,
+                        onSwipeToReply = { replyingToMessage = message },
+                        onPlayVoiceToggle = { repository.toggleVoicePlayback(message) },
+                        onVotePoll = { optIdx -> repository.votePoll(currentChat.id, message.id, optIdx) },
+                        onPhotoClick = { viewingMediaMessage = message },
+                        onReactionClick = { emoji -> repository.toggleReaction(currentChat.id, message.id, emoji) },
+                        onLongClick = { selectedMessageForOptions = message }
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+
+            // Bottom Floating Liquid Glass Composer Area
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
                     .navigationBarsPadding()
                     .imePadding()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), thickness = 0.5.dp)
-
                 // Reply or Edit Banner
-                val bannerTitle = editingMessage?.let { "Edit Message" } ?: replyingToMessage?.let { "Reply to ${it.senderName}" }
+                val bannerTitle = editingMessage?.let { strings.editMessage }
+                    ?: replyingToMessage?.let { "${strings.replyTo} ${it.senderName}" }
                 val bannerBody = editingMessage?.text ?: replyingToMessage?.text
                 if (bannerTitle != null && bannerBody != null) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                            .liquidGlass(shape = RoundedCornerShape(18.dp), strong = true)
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            if (editingMessage != null) Icons.Default.Edit else Icons.Default.Reply,
+                            if (editingMessage != null) Icons.Default.Edit else Icons.AutoMirrored.Filled.Reply,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
                                 .width(2.5.dp)
-                                .height(30.dp)
+                                .height(26.dp)
                                 .background(MaterialTheme.colorScheme.primary)
                         )
                         Spacer(Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = bannerTitle,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = bannerBody,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text(bannerTitle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                            Text(bannerBody, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         IconButton(
                             onClick = {
+                                if (editingMessage != null) inputText = ""
                                 replyingToMessage = null
                                 editingMessage = null
-                                if (editingMessage != null) inputText = ""
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(30.dp)
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Cancel", modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Close, contentDescription = strings.cancel, modifier = Modifier.size(18.dp))
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), thickness = 0.5.dp)
                 }
 
                 // Sticker Quick Strip
@@ -336,14 +402,14 @@ fun ChatDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .liquidGlass(shape = RoundedCornerShape(22.dp), strong = true)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        listOf("🚀", "🔥", "❤️", "👍", "😂", "🤩", "🦀").forEach { sticker ->
+                        listOf("🚀", "🔥", "❤️", "👍", "😂", "🤩", "🦀", "💎").forEach { sticker ->
                             Text(
                                 text = sticker,
-                                fontSize = 28.sp,
+                                fontSize = 27.sp,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
                                     .clickable {
@@ -354,18 +420,19 @@ fun ChatDetailScreen(
                                         )
                                         showStickerPanel = false
                                     }
-                                    .padding(6.dp)
+                                    .padding(4.dp)
                             )
                         }
                     }
                 }
 
-                // Composer Bar (Voice Recording Active vs Standard iOS Input)
+                // Floating Liquid Glass Composer Capsule
                 if (isRecordingVoice) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .liquidGlass(shape = RoundedCornerShape(50), strong = true)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -383,20 +450,20 @@ fun ChatDetailScreen(
                         )
                         Spacer(Modifier.weight(1f))
                         TextButton(onClick = { repository.cancelVoiceRecording() }) {
-                            Text("Cancel", color = TelegramIosRed, fontSize = 15.sp)
+                            Text(strings.cancel, color = TelegramIosRed, fontSize = 14.sp)
                         }
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(6.dp))
                         IconButton(
                             onClick = { repository.stopAndSendVoiceRecording(currentChat.id) },
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary)
                                 .testTag("send_recorded_voice_button")
                         ) {
                             Icon(
                                 Icons.Default.ArrowUpward,
-                                contentDescription = "Send voice message",
+                                contentDescription = strings.voiceMessageLabel,
                                 tint = Color.White,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -406,158 +473,198 @@ fun ChatDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            .liquidGlass(shape = RoundedCornerShape(28.dp), strong = true)
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.Bottom
                     ) {
                         IconButton(
                             onClick = { showAttachmentSheet = true },
-                            modifier = Modifier.size(40.dp).testTag("attach_button")
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("attach_button")
                         ) {
                             Icon(
                                 Icons.Default.AttachFile,
-                                contentDescription = "Attach media",
+                                contentDescription = "Attach",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
-                        // iOS Rounded Capsule Input
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
-                                .border(
-                                    width = 0.5.dp,
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
-                                    shape = RoundedCornerShape(20.dp)
-                                )
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .align(Alignment.CenterVertically)
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.CenterStart
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(vertical = 3.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                if (inputText.isEmpty()) {
-                                    Text(
-                                        text = "Message",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 16.sp
-                                    )
-                                }
-                                BasicTextField(
-                                    value = inputText,
-                                    onValueChange = { inputText = it },
-                                    maxLines = 5,
-                                    textStyle = TextStyle(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 16.sp
-                                    ),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                    keyboardActions = KeyboardActions(onSend = {
-                                        if (inputText.isNotBlank()) {
-                                            val editTarget = editingMessage
-                                            if (editTarget != null) {
-                                                repository.editMessage(currentChat.id, editTarget.id, inputText.trim())
-                                                editingMessage = null
-                                            } else {
-                                                repository.sendMessage(currentChat.id, inputText.trim(), replyingToMessage?.id)
-                                                replyingToMessage = null
-                                            }
-                                            inputText = ""
+                            if (inputText.isEmpty()) {
+                                Text(
+                                    text = strings.messagePlaceholder,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 16.sp
+                                )
+                            }
+                            BasicTextField(
+                                value = inputText,
+                                onValueChange = { inputText = it },
+                                maxLines = 5,
+                                textStyle = TextStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 16.sp
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = {
+                                    if (inputText.isNotBlank()) {
+                                        val editTarget = editingMessage
+                                        if (editTarget != null) {
+                                            repository.editMessage(currentChat.id, editTarget.id, inputText.trim())
+                                            editingMessage = null
+                                        } else {
+                                            repository.sendMessage(currentChat.id, inputText.trim(), replyingToMessage?.id)
+                                            replyingToMessage = null
                                         }
-                                    }),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("message_input_field")
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { showStickerPanel = !showStickerPanel },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    if (showStickerPanel) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
-                                    contentDescription = "Stickers",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
+                                        inputText = ""
+                                    }
+                                }),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("message_input_field")
+                            )
                         }
 
-                        Spacer(Modifier.width(6.dp))
+                        IconButton(
+                            onClick = { showStickerPanel = !showStickerPanel },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                if (showStickerPanel) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
+                                contentDescription = "Stickers",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Spacer(Modifier.width(2.dp))
 
                         if (inputText.isNotBlank()) {
-                            IconButton(
-                                onClick = {
-                                    val editTarget = editingMessage
-                                    if (editTarget != null) {
-                                        repository.editMessage(currentChat.id, editTarget.id, inputText.trim())
-                                        editingMessage = null
-                                    } else {
-                                        repository.sendMessage(currentChat.id, inputText.trim(), replyingToMessage?.id)
-                                        replyingToMessage = null
-                                    }
-                                    inputText = ""
-                                },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .testTag("send_message_button")
-                            ) {
-                                Icon(
-                                    if (editingMessage != null) Icons.Default.Check else Icons.Default.ArrowUpward,
-                                    contentDescription = "Send",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                            Box {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                        .combinedClickable(
+                                            onClick = {
+                                                val editTarget = editingMessage
+                                                if (editTarget != null) {
+                                                    repository.editMessage(currentChat.id, editTarget.id, inputText.trim())
+                                                    editingMessage = null
+                                                } else {
+                                                    repository.sendMessage(currentChat.id, inputText.trim(), replyingToMessage?.id)
+                                                    replyingToMessage = null
+                                                }
+                                                inputText = ""
+                                            },
+                                            onLongClick = { showSendOptionsMenu = true }
+                                        )
+                                        .testTag("send_message_button"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        if (editingMessage != null) Icons.Default.Check else Icons.Default.ArrowUpward,
+                                        contentDescription = "Send",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSendOptionsMenu,
+                                    onDismissRequest = { showSendOptionsMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(strings.sendSilently) },
+                                        leadingIcon = { Icon(Icons.Default.NotificationsOff, contentDescription = null) },
+                                        onClick = {
+                                            showSendOptionsMenu = false
+                                            repository.sendMessage(
+                                                chatId = currentChat.id,
+                                                rawText = inputText.trim(),
+                                                replyToId = replyingToMessage?.id,
+                                                isSilent = true
+                                            )
+                                            replyingToMessage = null
+                                            inputText = ""
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("${strings.scheduleMessage}: ${strings.scheduleIn10Sec}") },
+                                        leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) },
+                                        onClick = {
+                                            showSendOptionsMenu = false
+                                            repository.sendMessage(
+                                                chatId = currentChat.id,
+                                                rawText = inputText.trim(),
+                                                replyToId = replyingToMessage?.id,
+                                                scheduleDelaySec = 10
+                                            )
+                                            replyingToMessage = null
+                                            inputText = ""
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("${strings.scheduleMessage}: ${strings.scheduleIn1Min}") },
+                                        leadingIcon = { Icon(Icons.Default.ScheduleSend, contentDescription = null) },
+                                        onClick = {
+                                            showSendOptionsMenu = false
+                                            repository.sendMessage(
+                                                chatId = currentChat.id,
+                                                rawText = inputText.trim(),
+                                                replyToId = replyingToMessage?.id,
+                                                scheduleDelaySec = 60
+                                            )
+                                            replyingToMessage = null
+                                            inputText = ""
+                                        }
+                                    )
+                                }
                             }
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(
                                     onClick = { isVideoNoteMode = !isVideoNoteMode },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(32.dp)
                                 ) {
                                     Icon(
                                         if (isVideoNoteMode) Icons.Default.Mic else Icons.Default.CameraAlt,
-                                        contentDescription = "Toggle Mic / Video Note",
+                                        contentDescription = "Switch Mic / Video Note",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                                 IconButton(
                                     onClick = {
                                         if (isVideoNoteMode) {
-                                            repository.sendMediaMessage(
-                                                chatId = currentChat.id,
-                                                mediaType = MediaType.VIDEO_NOTE
-                                            )
+                                            repository.sendMediaMessage(currentChat.id, MediaType.VIDEO_NOTE)
                                         } else {
                                             val hasPerm = ContextCompat.checkSelfPermission(
                                                 context,
                                                 Manifest.permission.RECORD_AUDIO
                                             ) == PackageManager.PERMISSION_GRANTED
-                                            if (hasPerm) {
-                                                repository.startVoiceRecording()
-                                            } else {
-                                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                            }
+                                            if (hasPerm) repository.startVoiceRecording()
+                                            else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         }
                                     },
                                     modifier = Modifier
-                                        .size(38.dp)
+                                        .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
                                         .testTag("record_voice_button")
                                 ) {
                                     Icon(
                                         if (isVideoNoteMode) Icons.Default.Videocam else Icons.Default.Mic,
-                                        contentDescription = if (isVideoNoteMode) "Record video note" else "Record voice message",
+                                        contentDescription = strings.voiceMessageLabel,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(21.dp)
                                     )
@@ -568,44 +675,14 @@ fun ChatDetailScreen(
                 }
             }
         }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // Telegram Patterned Chat Wallpaper
-            TelegramChatWallpaper(isDarkMode = isDarkMode, modifier = Modifier.fillMaxSize())
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp),
-                contentPadding = PaddingValues(vertical = 12.dp)
-            ) {
-                items(chatMessages, key = { it.id }) { message ->
-                    SwipeableMessageBubble(
-                        message = message,
-                        isDarkMode = isDarkMode,
-                        isPlaying = playingMessageId == message.id,
-                        onSwipeToReply = { replyingToMessage = message },
-                        onPlayVoiceToggle = { repository.toggleVoicePlayback(message) },
-                        onReactionClick = { emoji -> repository.toggleReaction(currentChat.id, message.id, emoji) },
-                        onLongClick = { selectedMessageForOptions = message }
-                    )
-                    Spacer(Modifier.height(5.dp))
-                }
-            }
-        }
     }
 
-    // Attachment Sheet (Photo Picker, Document, Location, Contact)
+    // Attachment Sheet (Photo, File, Poll, Location, Contact)
     if (showAttachmentSheet) {
         ModalBottomSheet(onDismissRequest = { showAttachmentSheet = false }) {
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
                 Text(
-                    "Share to ${currentChat.title}",
+                    "${strings.shareToPrefix} ${currentChat.title}",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -614,36 +691,90 @@ fun ChatDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceAround
                 ) {
-                    IosAttachmentOption(Icons.Default.Image, "Photo", TelegramOnlineGreen) {
+                    IosAttachmentOption(Icons.Default.Image, strings.photoLabel, TelegramOnlineGreen) {
                         showAttachmentSheet = false
                         photoPickerLauncher.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     }
-                    IosAttachmentOption(Icons.Default.InsertDriveFile, "File", IosBlueLight) {
+                    IosAttachmentOption(Icons.Default.Poll, strings.pollLabel, TelegramIosPurple) {
+                        showAttachmentSheet = false
+                        showPollCreator = true
+                    }
+                    IosAttachmentOption(Icons.AutoMirrored.Filled.InsertDriveFile, strings.fileLabel, IosBlueLight) {
                         repository.sendMediaMessage(
                             chatId = currentChat.id,
                             mediaType = MediaType.DOCUMENT,
-                            fileName = "RustGram_Specs_v1.1.pdf",
+                            fileName = "RustGram_Specs_v2.pdf",
                             fileSize = "2.4 MB"
                         )
                         showAttachmentSheet = false
                     }
-                    IosAttachmentOption(Icons.Default.LocationOn, "Location", TelegramIosOrange) {
+                    IosAttachmentOption(Icons.Default.LocationOn, strings.locationLabel, TelegramIosOrange) {
                         repository.sendMessage(currentChat.id, "📍 Shared Live Location (52.3676° N, 4.9041° E)")
                         showAttachmentSheet = false
                     }
-                    IosAttachmentOption(Icons.Default.Person, "Contact", TelegramIosPurple) {
-                        repository.sendMessage(currentChat.id, "👤 Contact: Pavel Rust (@rustgram_dev)")
-                        showAttachmentSheet = false
-                    }
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(22.dp))
             }
         }
     }
 
-    // iOS Context Action Dialog + Quick Reaction Bar
+    if (showPollCreator) {
+        PollCreatorDialog(
+            onCreatePoll = { q, opts, isQuiz, correctIdx, multi ->
+                repository.sendPollMessage(currentChat.id, q, opts, isQuiz, correctIdx, multi)
+                showPollCreator = false
+            },
+            onDismiss = { showPollCreator = false }
+        )
+    }
+
+    if (showTimerDialog) {
+        AlertDialog(
+            onDismissRequest = { showTimerDialog = false },
+            title = { Text(strings.selfDestructTimer, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0 to strings.timerOff, 5 to "5s", 15 to "15s", 60 to "60s").forEach { (sec, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    repository.setSecretSelfDestructTimer(currentChat.id, sec)
+                                    showTimerDialog = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = currentChat.selfDestructSec == sec,
+                                onClick = {
+                                    repository.setSecretSelfDestructTimer(currentChat.id, sec)
+                                    showTimerDialog = false
+                                }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(label, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTimerDialog = false }) { Text(strings.close) }
+            }
+        )
+    }
+
+    viewingMediaMessage?.let { mediaMsg ->
+        MediaViewerModal(
+            message = mediaMsg,
+            onDismiss = { viewingMediaMessage = null }
+        )
+    }
+
+    // Message Options Dialog
     selectedMessageForOptions?.let { msg ->
         AlertDialog(
             onDismissRequest = { selectedMessageForOptions = null },
@@ -669,31 +800,31 @@ fun ChatDetailScreen(
             },
             text = {
                 Column {
-                    IosMenuAction(Icons.Default.Reply, "Reply") {
+                    IosMenuAction(Icons.AutoMirrored.Filled.Reply, strings.reply) {
                         replyingToMessage = msg
                         selectedMessageForOptions = null
                     }
-                    IosMenuAction(Icons.Default.ContentCopy, "Copy") {
+                    IosMenuAction(Icons.Default.ContentCopy, strings.copy) {
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cm.setPrimaryClip(ClipData.newPlainText("Message", msg.text))
                         selectedMessageForOptions = null
                     }
-                    IosMenuAction(Icons.Default.Forward, "Forward") {
+                    IosMenuAction(Icons.AutoMirrored.Filled.Forward, strings.forward) {
                         messageToForward = msg
                         selectedMessageForOptions = null
                     }
-                    IosMenuAction(Icons.Default.PushPin, "Pin") {
+                    IosMenuAction(Icons.Default.PushPin, strings.pin) {
                         repository.pinMessage(currentChat.id, msg)
                         selectedMessageForOptions = null
                     }
                     if (msg.isOutgoing && msg.mediaType == MediaType.NONE) {
-                        IosMenuAction(Icons.Default.Edit, "Edit") {
+                        IosMenuAction(Icons.Default.Edit, strings.edit) {
                             editingMessage = msg
                             inputText = msg.text
                             selectedMessageForOptions = null
                         }
                     }
-                    IosMenuAction(Icons.Default.Delete, "Delete", isDestructive = true) {
+                    IosMenuAction(Icons.Default.Delete, strings.delete, isDestructive = true) {
                         repository.deleteMessage(currentChat.id, msg.id)
                         selectedMessageForOptions = null
                     }
@@ -701,7 +832,7 @@ fun ChatDetailScreen(
             },
             confirmButton = {
                 TextButton(onClick = { selectedMessageForOptions = null }) {
-                    Text("Close")
+                    Text(strings.close)
                 }
             }
         )
@@ -711,7 +842,7 @@ fun ChatDetailScreen(
     messageToForward?.let { msg ->
         AlertDialog(
             onDismissRequest = { messageToForward = null },
-            title = { Text("Forward to…", fontWeight = FontWeight.SemiBold) },
+            title = { Text(strings.forwardTo, fontWeight = FontWeight.SemiBold) },
             text = {
                 LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
                     items(chats) { targetChat ->
@@ -741,64 +872,9 @@ fun ChatDetailScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { messageToForward = null }) { Text("Cancel") }
+                TextButton(onClick = { messageToForward = null }) { Text(strings.cancel) }
             }
         )
-    }
-}
-
-@Composable
-fun TelegramChatWallpaper(isDarkMode: Boolean, modifier: Modifier = Modifier) {
-    val bgColors = if (isDarkMode) {
-        listOf(Color(0xFF06090E), Color(0xFF0D1520), Color(0xFF0A111A))
-    } else {
-        listOf(Color(0xFFD2E7D6), Color(0xFFCDE2EE), Color(0xFFDCEBC9))
-    }
-    val motifColor = if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color(0xFF2B6049).copy(alpha = 0.08f)
-
-    Canvas(
-        modifier = modifier.background(Brush.verticalGradient(bgColors))
-    ) {
-        val stepX = 110.dp.toPx()
-        val stepY = 110.dp.toPx()
-        val cols = (size.width / stepX).toInt() + 2
-        val rows = (size.height / stepY).toInt() + 2
-
-        for (r in 0 until rows) {
-            for (c in 0 until cols) {
-                val cx = c * stepX + (if (r % 2 == 0) 20f else 60f)
-                val cy = r * stepY + 30f
-                when ((r + c) % 3) {
-                    0 -> {
-                        // Subtle paper plane silhouette
-                        val path = Path().apply {
-                            moveTo(cx, cy)
-                            lineTo(cx + 26f, cy - 10f)
-                            lineTo(cx + 14f, cy + 16f)
-                            close()
-                        }
-                        drawPath(path, motifColor, style = Stroke(width = 2.5f))
-                    }
-                    1 -> {
-                        drawCircle(motifColor, radius = 14f, center = Offset(cx, cy), style = Stroke(width = 2.5f))
-                    }
-                    else -> {
-                        drawLine(
-                            motifColor,
-                            start = Offset(cx - 12f, cy),
-                            end = Offset(cx + 12f, cy),
-                            strokeWidth = 2.5f
-                        )
-                        drawLine(
-                            motifColor,
-                            start = Offset(cx, cy - 12f),
-                            end = Offset(cx, cy + 12f),
-                            strokeWidth = 2.5f
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -806,10 +882,12 @@ fun TelegramChatWallpaper(isDarkMode: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun SwipeableMessageBubble(
     message: TelegramMessageModel,
-    isDarkMode: Boolean,
+    strings: AppStrings,
     isPlaying: Boolean,
     onSwipeToReply: () -> Unit,
     onPlayVoiceToggle: () -> Unit,
+    onVotePoll: (Int) -> Unit,
+    onPhotoClick: () -> Unit,
     onReactionClick: (String) -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -847,7 +925,6 @@ fun SwipeableMessageBubble(
                 )
             }
     ) {
-        // Revealed Swipe-to-Reply icon on the right
         if (offsetX.value < -15f) {
             Box(
                 modifier = Modifier
@@ -859,7 +936,7 @@ fun SwipeableMessageBubble(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Reply,
+                    Icons.AutoMirrored.Filled.Reply,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(18.dp)
@@ -874,9 +951,11 @@ fun SwipeableMessageBubble(
         ) {
             IosMessageBubble(
                 message = message,
-                isDarkMode = isDarkMode,
+                strings = strings,
                 isPlaying = isPlaying,
                 onPlayVoiceToggle = onPlayVoiceToggle,
+                onVotePoll = onVotePoll,
+                onPhotoClick = onPhotoClick,
                 onReactionClick = onReactionClick,
                 onLongClick = onLongClick
             )
@@ -888,29 +967,31 @@ fun SwipeableMessageBubble(
 @Composable
 fun IosMessageBubble(
     message: TelegramMessageModel,
-    isDarkMode: Boolean,
+    strings: AppStrings,
     isPlaying: Boolean,
     onPlayVoiceToggle: () -> Unit,
+    onVotePoll: (Int) -> Unit,
+    onPhotoClick: () -> Unit,
     onReactionClick: (String) -> Unit,
     onLongClick: () -> Unit
 ) {
+    val glass = LocalLiquidGlassPalette.current
     val isOut = message.isOutgoing
     val bubbleBrush = if (isOut) {
-        if (isDarkMode) Brush.verticalGradient(listOf(IosDarkBubbleOutStart, IosDarkBubbleOutEnd))
-        else Brush.verticalGradient(listOf(IosLightBubbleOutStart, IosLightBubbleOutEnd))
+        Brush.verticalGradient(listOf(glass.bubbleOutStart, glass.bubbleOutEnd))
     } else {
-        if (isDarkMode) Brush.verticalGradient(listOf(IosDarkBubbleIn, IosDarkBubbleIn))
-        else Brush.verticalGradient(listOf(IosLightBubbleIn, IosLightBubbleIn))
+        Brush.verticalGradient(listOf(glass.bubbleIn, glass.glassSurfaceStrong))
     }
+    val rimColor = if (isOut) Color.White.copy(alpha = 0.42f) else glass.glassSpecularTop
 
     val textColor = if (isOut) Color.White else MaterialTheme.colorScheme.onSurface
-    val mutedColor = if (isOut) Color.White.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val mutedColor = if (isOut) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
 
     val bubbleShape = RoundedCornerShape(
-        topStart = 18.dp,
-        topEnd = 18.dp,
-        bottomStart = if (isOut) 18.dp else 5.dp,
-        bottomEnd = if (isOut) 5.dp else 18.dp
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = if (isOut) 20.dp else 6.dp,
+        bottomEnd = if (isOut) 6.dp else 20.dp
     )
 
     Column(
@@ -928,7 +1009,6 @@ fun IosMessageBubble(
                     .padding(4.dp)
             )
         } else if (message.mediaType == MediaType.VIDEO_NOTE) {
-            // Circular Telegram Video Note ("Кружочек")
             Box(
                 modifier = Modifier
                     .size(176.dp)
@@ -945,17 +1025,15 @@ fun IosMessageBubble(
                 }
             }
         } else {
-            Surface(
-                shape = bubbleShape,
-                shadowElevation = if (isDarkMode) 0.dp else 1.dp,
-                color = Color.Transparent,
+            Box(
                 modifier = Modifier
-                    .widthIn(min = 84.dp, max = 304.dp)
+                    .widthIn(min = 96.dp, max = 312.dp)
                     .clip(bubbleShape)
                     .background(bubbleBrush)
+                    .border(0.9.dp, rimColor, bubbleShape)
                     .combinedClickable(onClick = onLongClick, onLongClick = onLongClick)
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp)) {
                     if (!isOut && message.senderName != "You") {
                         Text(
                             text = message.senderName,
@@ -968,7 +1046,7 @@ fun IosMessageBubble(
 
                     message.forwardedFrom?.let { from ->
                         Text(
-                            text = "Forwarded from $from",
+                            text = "${strings.forward}: $from",
                             fontSize = 12.sp,
                             fontStyle = FontStyle.Italic,
                             color = mutedColor,
@@ -980,7 +1058,7 @@ fun IosMessageBubble(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(if (isOut) Color.White.copy(alpha = 0.16f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
@@ -1010,24 +1088,125 @@ fun IosMessageBubble(
                         Spacer(Modifier.height(6.dp))
                     }
 
-                    // Photo attachment
-                    if (message.mediaType == MediaType.PHOTO && !message.mediaUri.isNullOrBlank()) {
+                    // Interactive Poll Card
+                    if (message.mediaType == MediaType.POLL && message.pollData != null) {
+                        val poll = message.pollData
+                        Text(
+                            text = poll.question,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = if (poll.isQuiz) strings.quizMode else strings.pollLabel,
+                            fontSize = 11.sp,
+                            color = mutedColor
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        val totalVotes = poll.totalVotes.coerceAtLeast(1)
+                        val hasVoted = poll.selectedIndices.isNotEmpty()
+
+                        poll.options.forEachIndexed { idx, opt ->
+                            val isSelected = poll.selectedIndices.contains(idx)
+                            val pct = if (hasVoted) (opt.votes * 100) / totalVotes else 0
+                            val fraction = if (hasVoted) (opt.votes.toFloat() / totalVotes.toFloat()).coerceIn(0.05f, 1f) else 0f
+                            val isCorrectQuiz = poll.isQuiz && poll.correctOptionIndex == idx
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (isOut) Color.White.copy(alpha = 0.14f)
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                                    )
+                                    .border(
+                                        width = if (isSelected) 1.5.dp else 0.6.dp,
+                                        color = when {
+                                            hasVoted && isCorrectQuiz -> TelegramOnlineGreen
+                                            isSelected && isOut -> Color.White
+                                            isSelected -> MaterialTheme.colorScheme.primary
+                                            else -> Color.Transparent
+                                        },
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { onVotePoll(idx) }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (isSelected) "✓ ${opt.text}" else opt.text,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = textColor,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (hasVoted) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "$pct%",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCorrectQuiz) TelegramOnlineGreen else mutedColor
+                                        )
+                                    }
+                                }
+                                if (hasVoted) {
+                                    Spacer(Modifier.height(5.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(textColor.copy(alpha = 0.15f))
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(fraction)
+                                                .fillMaxHeight()
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(
+                                                    when {
+                                                        isCorrectQuiz -> TelegramOnlineGreen
+                                                        isOut -> Color.White
+                                                        else -> MaterialTheme.colorScheme.primary
+                                                    }
+                                                )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "${poll.totalVotes} ${strings.votesSuffix}",
+                            fontSize = 11.sp,
+                            color = mutedColor
+                        )
+                    } else if (message.mediaType == MediaType.PHOTO && !message.mediaUri.isNullOrBlank()) {
                         AsyncImage(
                             model = message.mediaUri,
-                            contentDescription = "Shared photo",
+                            contentDescription = strings.tapToViewPhoto,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 140.dp, max = 240.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable(onClick = onPhotoClick)
                         )
                         if (message.text != "📷 Photo") {
                             Spacer(Modifier.height(6.dp))
+                            Text(text = message.text, fontSize = 15.sp, color = textColor)
                         }
-                    }
-
-                    // Document attachment
-                    if (message.mediaType == MediaType.DOCUMENT) {
+                    } else if (message.mediaType == MediaType.DOCUMENT) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(vertical = 4.dp)
@@ -1040,19 +1219,18 @@ fun IosMessageBubble(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    Icons.Default.InsertDriveFile,
-                                    contentDescription = "Document",
+                                    Icons.AutoMirrored.Filled.InsertDriveFile,
+                                    contentDescription = strings.fileLabel,
                                     tint = if (isOut) Color.White else MaterialTheme.colorScheme.primary
                                 )
                             }
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text(message.fileName ?: message.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = textColor)
-                                Text(message.fileSize ?: "Document", fontSize = 12.sp, color = mutedColor)
+                                Text(message.fileSize ?: strings.fileLabel, fontSize = 12.sp, color = mutedColor)
                             }
                         }
                     } else if (message.mediaType == MediaType.VOICE) {
-                        // Real Voice Note with Rust-normalized Waveform
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(vertical = 2.dp)
@@ -1066,8 +1244,8 @@ fun IosMessageBubble(
                             ) {
                                 Icon(
                                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play voice",
-                                    tint = if (isOut) IosBlueLight else Color.White,
+                                    contentDescription = strings.voiceMessageLabel,
+                                    tint = if (isOut) glass.accent else Color.White,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -1106,8 +1284,7 @@ fun IosMessageBubble(
                                 )
                             }
                         }
-                    } else if (!(message.mediaType == MediaType.PHOTO && message.text == "📷 Photo")) {
-                        // Rich AnnotatedString rendered from Rust parseMarkdown entities
+                    } else {
                         val annotated = remember(message.text, message.entities, isOut) {
                             buildAnnotatedString {
                                 append(message.text)
@@ -1148,9 +1325,36 @@ fun IosMessageBubble(
                         modifier = Modifier.align(Alignment.End),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (message.scheduledForEpochMs != null) {
+                            Icon(
+                                Icons.Default.Schedule,
+                                contentDescription = strings.scheduledBadge,
+                                tint = mutedColor,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(Modifier.width(3.dp))
+                        }
+                        if (message.isSilent) {
+                            Icon(
+                                Icons.Default.NotificationsOff,
+                                contentDescription = strings.silentBadge,
+                                tint = mutedColor,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(Modifier.width(3.dp))
+                        }
+                        if (message.expiresAtEpochMs != null) {
+                            val remainSec = ((message.expiresAtEpochMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
+                            Text(
+                                text = "⏱${remainSec}s ",
+                                fontSize = 10.sp,
+                                color = mutedColor,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         if (message.isEdited) {
                             Text(
-                                text = "edited ",
+                                text = strings.editedLabel,
                                 fontSize = 11.sp,
                                 color = mutedColor
                             )
@@ -1183,8 +1387,8 @@ fun IosMessageBubble(
                     Surface(
                         onClick = { onReactionClick(reaction.emoji) },
                         shape = RoundedCornerShape(12.dp),
-                        color = if (reaction.isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        shadowElevation = 1.dp
+                        color = if (reaction.isSelected) MaterialTheme.colorScheme.primary else glass.glassSurfaceStrong,
+                        shadowElevation = 2.dp
                     ) {
                         Text(
                             text = "${reaction.emoji} ${reaction.count}",

@@ -28,7 +28,8 @@ impl TelegramCrypto {
         bytes
     }
 
-    /// Compute 2FA password hash with salt (Telegram Cloud Password algorithm)
+    /// Legacy app-passcode derivation retained only to migrate old local passcode records.
+    /// This is NOT Telegram's 2FA/SRP algorithm and must never be used for Telegram login.
     pub fn compute_password_hash(password: &str, salt1: &[u8], salt2: &[u8]) -> Vec<u8> {
         // Step 1: hash password with salt1
         let mut h1 = Sha256::new();

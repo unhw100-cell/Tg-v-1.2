@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,18 +16,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.repository.TelegramRepository
+import com.example.ui.components.liquidGlass
 
 @Composable
 fun ApiConfigDialog(
     repository: TelegramRepository,
     onDismiss: () -> Unit
 ) {
-    var apiIdText by remember { mutableStateOf(repository.getApiId().toString()) }
+    var apiIdText by remember { mutableStateOf(repository.getApiId().takeIf { it > 0 }?.toString() ?: "") }
     var apiHashText by remember { mutableStateOf(repository.getApiHash()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
+        shape = RoundedCornerShape(28.dp),
+        colors = AlertDialogDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+        ),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -118,8 +125,8 @@ fun ApiConfigDialog(
                     val id = apiIdText.toIntOrNull()
                     if (id == null || id <= 0) {
                         errorMessage = "Please enter a valid numeric API ID"
-                    } else if (apiHashText.length < 16) {
-                        errorMessage = "Please enter a valid 32-character API Hash"
+                    } else if (!apiHashText.matches(Regex("[0-9a-fA-F]{32}"))) {
+                        errorMessage = "Please enter a valid 32-character hexadecimal API Hash"
                     } else {
                         repository.saveApiCredentials(id, apiHashText)
                         onDismiss()

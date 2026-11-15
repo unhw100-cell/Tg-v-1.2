@@ -8,8 +8,12 @@ use rustgram_core::{ChatId, MessageId, TelegramChat, TelegramMessage};
 use rustgram_database::RustGramDatabase;
 use rustgram_encryption::TelegramCrypto;
 use rustgram_media::VoiceWaveform;
-use rustgram_messaging::MessageProcessor;
+use rustgram_messaging::{build_messaging_request, MessageProcessor};
 use rustgram_networking::NetworkManager;
+use rustgram_networking::{
+    disable_proxy_request, enable_proxy_request, get_proxies_request, ping_proxy_request,
+    remove_proxy_request, ProxyConfig,
+};
 use rustgram_synchronization::SyncEngine;
 use std::sync::{Mutex, OnceLock};
 
@@ -104,6 +108,104 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_isTdLibNativeLinke
 }
 
 // ============================================================================
+// Proxy request builders. Validation and TDLib JSON construction live in Rust.
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustgram_NativeBridge_buildProxyRequest(
+    mut env: JNIEnv,
+    _class: JClass,
+    operation: JString,
+    config_json: JString,
+    proxy_id: jint,
+) -> jstring {
+    let operation: String = match env.get_string(&operation) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let config_json: String = match env.get_string(&config_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let request = match operation.as_str() {
+        "list" => Ok(get_proxies_request()),
+        "disable" => Ok(disable_proxy_request()),
+        "enable" => enable_proxy_request(proxy_id),
+        "remove" => remove_proxy_request(proxy_id),
+        "add" | "edit" | "ping" => {
+            let parsed = if config_json.trim().is_empty() {
+                None
+            } else {
+                serde_json::from_str::<ProxyConfig>(&config_json).ok()
+            };
+            match (operation.as_str(), parsed) {
+                ("add", Some(config)) => config.add_request(config.enabled),
+                ("edit", Some(config)) => config.edit_request(proxy_id, config.enabled),
+                ("ping", Some(config)) => ping_proxy_request(Some(&config)),
+                ("ping", None) => ping_proxy_request(None),
+                _ => Err(rustgram_core::RustGramError::InvalidParameter(
+                    "A valid proxy configuration is required".into(),
+                )),
+            }
+        }
+        _ => Err(rustgram_core::RustGramError::InvalidParameter(
+            "Unsupported proxy operation".into(),
+        )),
+    };
+
+    let output = match request.and_then(|value| {
+        serde_json::to_string(&value)
+            .map_err(|error| rustgram_core::RustGramError::Serialization(error.to_string()))
+    }) {
+        Ok(json) => json,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    env.new_string(output)
+        .map(|value| value.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+// ============================================================================
+// Rust messaging request builder JNI export
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_com_example_rustgram_NativeBridge_buildMessagingRequest(
+    mut env: JNIEnv,
+    _class: JClass,
+    operation: JString,
+    payload_json: JString,
+) -> jstring {
+    let operation: String = match env.get_string(&operation) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let payload_json: String = match env.get_string(&payload_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let payload = match serde_json::from_str::<serde_json::Value>(&payload_json) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let request = match build_messaging_request(&operation, &payload) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!("Rejected Rust messaging request: {}", error);
+            return std::ptr::null_mut();
+        }
+    };
+    let output = match serde_json::to_string(&request) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    env.new_string(output)
+        .map(|value| value.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+// ============================================================================
 // Rust Core Engine JNI Exports
 // ============================================================================
 
@@ -114,29 +216,46 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_initCore(
     api_id: jint,
     db_path: JString,
 ) -> jboolean {
-    {
-        let mut auth = AUTH_MANAGER.lock().unwrap();
-        let mut a = AuthManager::new();
-        a.api_id = api_id;
-        *auth = Some(a);
+    let path: String = match env.get_string(&db_path) {
+        Ok(value) => value.into(),
+        Err(_) => return 0,
+    };
+    if path.trim().is_empty() {
+        return 0;
     }
-    {
-        let mut nm = NETWORK_MANAGER.lock().unwrap();
-        *nm = Some(NetworkManager::new());
-    }
-    {
-        let mut sync = SYNC_ENGINE.lock().unwrap();
-        *sync = Some(SyncEngine::new());
-    }
-
-    if let Ok(path_jstr) = env.get_string(&db_path) {
-        let path: String = path_jstr.into();
-        if !path.is_empty() {
-            if let Ok(db) = RustGramDatabase::open(&path) {
-                let mut guard = db_holder().lock().unwrap();
-                *guard = Some(db);
-            }
+    let database = match RustGramDatabase::open(&path) {
+        Ok(db) => db,
+        Err(error) => {
+            tracing::error!("RustGram database initialization failed: {}", error);
+            return 0;
         }
+    };
+
+    {
+        let mut auth = AUTH_MANAGER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut manager = AuthManager::new();
+        manager.api_id = api_id;
+        *auth = Some(manager);
+    }
+    {
+        let mut manager = NETWORK_MANAGER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *manager = Some(NetworkManager::new());
+    }
+    {
+        let mut manager = SYNC_ENGINE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *manager = Some(SyncEngine::new());
+    }
+    {
+        let mut guard = db_holder()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = Some(database);
     }
 
     JNI_TRUE
@@ -150,7 +269,7 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_getCoreVersion(
     let linked = if rustgram_tdlib::is_native_linked() {
         "TDLib Linked"
     } else {
-        "TDLib Fallback"
+        "TDLib unavailable"
     };
     let version_str = format!("RustGram Core 1.1.0 (Rust + Tokio + Rusqlite + {})", linked);
     env.new_string(version_str)
@@ -166,7 +285,10 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_computePasswordHas
     salt1: JString,
     salt2: JString,
 ) -> jstring {
-    let pass: String = env.get_string(&password).map(|s| s.into()).unwrap_or_default();
+    let pass: String = env
+        .get_string(&password)
+        .map(|s| s.into())
+        .unwrap_or_default();
     let s1: String = env.get_string(&salt1).map(|s| s.into()).unwrap_or_default();
     let s2: String = env.get_string(&salt2).map(|s| s.into()).unwrap_or_default();
 
@@ -223,9 +345,16 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_saveChatJson(
     _class: JClass,
     chat_json: JString,
 ) -> jboolean {
-    let raw: String = env.get_string(&chat_json).map(|s| s.into()).unwrap_or_default();
+    let raw: String = env
+        .get_string(&chat_json)
+        .map(|s| s.into())
+        .unwrap_or_default();
     if let Ok(chat) = serde_json::from_str::<TelegramChat>(&raw) {
-        if let Some(db) = db_holder().lock().unwrap().as_ref() {
+        if let Some(db) = db_holder()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
             if db.save_chat(&chat).is_ok() {
                 return JNI_TRUE;
             }
@@ -239,7 +368,11 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_loadChatsJson(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    let json_str = if let Some(db) = db_holder().lock().unwrap().as_ref() {
+    let json_str = if let Some(db) = db_holder()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
         let chats = db.get_all_chats().unwrap_or_default();
         serde_json::to_string(&chats).unwrap_or_else(|_| "[]".into())
     } else {
@@ -257,9 +390,16 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_saveMessageJson(
     _class: JClass,
     msg_json: JString,
 ) -> jboolean {
-    let raw: String = env.get_string(&msg_json).map(|s| s.into()).unwrap_or_default();
+    let raw: String = env
+        .get_string(&msg_json)
+        .map(|s| s.into())
+        .unwrap_or_default();
     if let Ok(msg) = serde_json::from_str::<TelegramMessage>(&raw) {
-        if let Some(db) = db_holder().lock().unwrap().as_ref() {
+        if let Some(db) = db_holder()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
             if db.save_message(&msg).is_ok() {
                 return JNI_TRUE;
             }
@@ -275,7 +415,11 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_loadMessagesJson(
     chat_id: jlong,
     limit: jint,
 ) -> jstring {
-    let json_str = if let Some(db) = db_holder().lock().unwrap().as_ref() {
+    let json_str = if let Some(db) = db_holder()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
         let msgs = db
             .get_chat_messages(ChatId(chat_id), limit.max(1) as u32)
             .unwrap_or_default();
@@ -297,7 +441,11 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_searchMessagesJson
     limit: jint,
 ) -> jstring {
     let q: String = env.get_string(&query).map(|s| s.into()).unwrap_or_default();
-    let json_str = if let Some(db) = db_holder().lock().unwrap().as_ref() {
+    let json_str = if let Some(db) = db_holder()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
         let msgs = db
             .search_messages(&q, limit.max(1) as u32)
             .unwrap_or_default();
@@ -318,7 +466,11 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_deleteMessageFromD
     chat_id: jlong,
     msg_id: jlong,
 ) -> jboolean {
-    if let Some(db) = db_holder().lock().unwrap().as_ref() {
+    if let Some(db) = db_holder()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
         if db
             .delete_message(ChatId(chat_id), MessageId(msg_id))
             .is_ok()
@@ -347,7 +499,10 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_matchCountryByDial
     _class: JClass,
     dial_code: JString,
 ) -> jstring {
-    let dial: String = env.get_string(&dial_code).map(|s| s.into()).unwrap_or_default();
+    let dial: String = env
+        .get_string(&dial_code)
+        .map(|s| s.into())
+        .unwrap_or_default();
     let json_str = match AuthManager::match_country_by_dial_code(&dial) {
         Some(country) => serde_json::to_string(&country).unwrap_or_default(),
         None => String::new(),
@@ -360,7 +515,8 @@ pub extern "system" fn Java_com_example_rustgram_NativeBridge_matchCountryByDial
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_native_bridge_compiles() {
-        assert!(true);
+    fn test_tdlib_client_id_is_positive() {
+        let client_id = rustgram_tdlib::create_client_id();
+        assert!(client_id > 0, "TDLib client ID must be positive");
     }
 }

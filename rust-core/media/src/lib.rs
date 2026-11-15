@@ -1,7 +1,6 @@
 //! RustGram Media Engine
 //! Image resizing, voice note waveform sampling, file cache management and mime helpers.
 
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

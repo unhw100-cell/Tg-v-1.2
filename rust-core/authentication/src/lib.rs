@@ -66,8 +66,9 @@ impl Default for AuthManager {
             current_state: AuthorizationState::WaitTdlibParameters,
             active_account_id: 1,
             accounts: Vec::new(),
-            api_id: 94575,
-            api_hash: "a3406de8d17135cf542d8bd3540d613e".into(),
+            // Credentials must be provided by the user; never embed a shared example key.
+            api_id: 0,
+            api_hash: String::new(),
         }
     }
 }
@@ -359,16 +360,36 @@ impl AuthManager {
         };
         // Prefer primary country for shared codes (+1 -> US, +7 -> Russia, +44 -> UK, +39 -> Italy, +61 -> Australia)
         match normalized.as_str() {
-            "+1" => Self::get_all_countries().into_iter().find(|c| c.country_code == "US"),
-            "+7" => Self::get_all_countries().into_iter().find(|c| c.country_code == "RU"),
-            "+44" => Self::get_all_countries().into_iter().find(|c| c.country_code == "GB"),
-            "+39" => Self::get_all_countries().into_iter().find(|c| c.country_code == "IT"),
-            "+61" => Self::get_all_countries().into_iter().find(|c| c.country_code == "AU"),
-            "+358" => Self::get_all_countries().into_iter().find(|c| c.country_code == "FI"),
-            "+47" => Self::get_all_countries().into_iter().find(|c| c.country_code == "NO"),
-            "+590" => Self::get_all_countries().into_iter().find(|c| c.country_code == "GP"),
-            "+599" => Self::get_all_countries().into_iter().find(|c| c.country_code == "CW"),
-            "+262" => Self::get_all_countries().into_iter().find(|c| c.country_code == "RE"),
+            "+1" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "US"),
+            "+7" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "RU"),
+            "+44" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "GB"),
+            "+39" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "IT"),
+            "+61" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "AU"),
+            "+358" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "FI"),
+            "+47" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "NO"),
+            "+590" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "GP"),
+            "+599" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "CW"),
+            "+262" => Self::get_all_countries()
+                .into_iter()
+                .find(|c| c.country_code == "RE"),
             _ => Self::get_all_countries()
                 .into_iter()
                 .find(|c| c.calling_code == normalized),
@@ -383,7 +404,10 @@ impl AuthManager {
             self.active_account_id = account_id;
             Ok(())
         } else {
-            Err(RustGramError::Auth(format!("Account {} not found", account_id)))
+            Err(RustGramError::Auth(format!(
+                "Account {} not found",
+                account_id
+            )))
         }
     }
 }
@@ -418,12 +442,26 @@ mod tests {
     #[test]
     fn test_countries_list() {
         let countries = AuthManager::get_all_countries();
-        assert!(countries.len() >= 230, "Expected full world directory, got {}", countries.len());
-        assert!(countries.iter().any(|c| c.calling_code == "+1" && c.country_code == "US"));
-        assert!(countries.iter().any(|c| c.calling_code == "+7" && c.country_code == "RU"));
-        assert!(countries.iter().any(|c| c.calling_code == "+380" && c.country_code == "UA"));
-        assert!(countries.iter().any(|c| c.calling_code == "+888" && c.country_code == "FT"));
-        assert!(countries.iter().any(|c| c.calling_code == "+81" && c.country_code == "JP"));
+        assert!(
+            countries.len() >= 230,
+            "Expected full world directory, got {}",
+            countries.len()
+        );
+        assert!(countries
+            .iter()
+            .any(|c| c.calling_code == "+1" && c.country_code == "US"));
+        assert!(countries
+            .iter()
+            .any(|c| c.calling_code == "+7" && c.country_code == "RU"));
+        assert!(countries
+            .iter()
+            .any(|c| c.calling_code == "+380" && c.country_code == "UA"));
+        assert!(countries
+            .iter()
+            .any(|c| c.calling_code == "+888" && c.country_code == "FT"));
+        assert!(countries
+            .iter()
+            .any(|c| c.calling_code == "+81" && c.country_code == "JP"));
 
         let matched = AuthManager::match_country_by_dial_code("7").unwrap();
         assert_eq!(matched.country_code, "RU");

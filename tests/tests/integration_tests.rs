@@ -1,5 +1,6 @@
-use rustgram_authentication::{AuthManager, AuthorizationState};
-use rustgram_core::{ChatId, ChatType, MessageContent, MessageId, TelegramChat, TelegramMessage, UserId};
+use rustgram_core::{
+    ChatId, ChatType, MessageContent, MessageId, TelegramChat, TelegramMessage, UserId,
+};
 use rustgram_database::RustGramDatabase;
 use rustgram_encryption::TelegramCrypto;
 use rustgram_media::VoiceWaveform;
@@ -50,7 +51,9 @@ fn test_end_to_end_messaging_and_caching() {
 
     db.save_message(&message).expect("Save message failed");
 
-    let history = db.get_chat_messages(ChatId(1001), 10).expect("Get history failed");
+    let history = db
+        .get_chat_messages(ChatId(1001), 10)
+        .expect("Get history failed");
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].summary_text(), "Welcome to RustGram!");
 

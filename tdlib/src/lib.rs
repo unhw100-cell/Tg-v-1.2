@@ -44,8 +44,7 @@ fn get_backend() -> Option<&'static TdLibSymbols> {
                     let execute: std::result::Result<Symbol<FnTdExecute>, _> =
                         lib.get(b"td_execute\0");
 
-                    if let (Ok(c), Ok(s), Ok(r), Ok(e)) =
-                        (create_client_id, send, receive, execute)
+                    if let (Ok(c), Ok(s), Ok(r), Ok(e)) = (create_client_id, send, receive, execute)
                     {
                         let create_fn = *c;
                         let send_fn = *s;
@@ -88,7 +87,15 @@ pub fn send_raw(client_id: i32, request_json: &str) -> Result<()> {
             (backend.send)(client_id, c_req.as_ptr());
         }
     } else {
-        tracing::debug!("Fallback TDLib send (client {}): {}", client_id, request_json);
+        // Never pretend a request was delivered when TDLib is not loaded.
+        // Requests may contain login codes or 2FA passwords, so do not log their JSON.
+        tracing::warn!(
+            "TDLib is unavailable; request for client {} was not sent",
+            client_id
+        );
+        return Err(RustGramError::Network(
+            "TDLib native library is not loaded".into(),
+        ));
     }
     Ok(())
 }
@@ -116,7 +123,8 @@ pub fn execute_raw(request_json: &str) -> Option<String> {
         let c_str = unsafe { CStr::from_ptr(ptr) };
         c_str.to_str().ok().map(|s| s.to_owned())
     } else {
-        Some(r#"{"@type":"ok"}"#.to_string())
+        // A missing native backend is an unavailable operation, not a successful TDLib reply.
+        None
     }
 }
 
@@ -145,11 +153,9 @@ impl TdClient {
     pub fn execute(&self, request: &Value) -> Result<Value> {
         let json_str = serde_json::to_string(request)
             .map_err(|e| RustGramError::Serialization(e.to_string()))?;
-        match execute_raw(&json_str) {
-            Some(res) => serde_json::from_str(&res)
-                .map_err(|e| RustGramError::Serialization(e.to_string())),
-            None => Ok(Value::Null),
-        }
+        let response = execute_raw(&json_str)
+            .ok_or_else(|| RustGramError::Network("TDLib native library is not loaded".into()))?;
+        serde_json::from_str(&response).map_err(|e| RustGramError::Serialization(e.to_string()))
     }
 }
 
@@ -172,8 +178,13 @@ mod tests {
             "@type": "getOption",
             "name": "version"
         });
-        client.send(&req).expect("send request");
-        let res = client.execute(&req).expect("execute request");
-        assert_eq!(res["@type"], "ok");
+        if is_native_linked() {
+            client.send(&req).expect("send request");
+            let res = client.execute(&req).expect("execute request");
+            assert_eq!(res["@type"], "ok");
+        } else {
+            assert!(client.send(&req).is_err());
+            assert!(execute_raw(r#"{"@type":"getOption","name":"version"}"#).is_none());
+        }
     }
 }

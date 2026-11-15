@@ -11,17 +11,20 @@ plugins {
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
+  // Keep CI and local native builds on the same Android NDK revision.
+  ndkVersion = "28.2.13676358"
 
   defaultConfig {
     applicationId = "com.aistudio.rustgram.app"
-    minSdk = 24
+    // This project is intentionally Android 16+ only during the current development phase.
+    minSdk = 36
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0.0"
+    versionCode = 2
+    versionName = "1.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     ndk {
-      abiFilters.add("arm64-v8a")
+      abiFilters.addAll(listOf("arm64-v8a", "x86_64", "armeabi-v7a"))
     }
   }
 
@@ -41,12 +44,6 @@ android {
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
   }
 
   buildTypes {
@@ -57,11 +54,6 @@ android {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("release")
-    }
-    debug {
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
-      signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
   compileOptions {

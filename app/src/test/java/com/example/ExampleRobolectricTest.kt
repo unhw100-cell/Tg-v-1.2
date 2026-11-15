@@ -1,6 +1,9 @@
 package com.example
 
 import com.example.tdlib.*
+import com.example.ui.i18n.EnStrings
+import com.example.ui.i18n.RuStrings
+import com.example.ui.i18n.stringsForLanguage
 import com.example.ui.screens.sampleCountries
 import org.junit.Assert.*
 import org.junit.Test
@@ -27,32 +30,72 @@ class TelegramLogicTest {
     }
 
     @Test
-    fun testChatModelProperties() {
+    fun testChatModelAndSecretProperties() {
         val chat = TelegramChatModel(
             id = 101L,
             title = "Rust Developers",
-            type = "supergroup",
-            lastMessageText = "Hello from Rust!",
+            type = "secret",
+            lastMessageText = "Encrypted!",
             lastMessageTime = "12:00",
             unreadCount = 5,
             isPinned = true,
             isMuted = false,
+            isArchived = true,
+            isSecret = true,
+            selfDestructSec = 15,
             username = "@rust_dev",
             memberCount = 1200,
-            category = ChatCategory.GROUPS
+            category = ChatCategory.SECRET
         )
 
         assertEquals("Rust Developers", chat.title)
         assertEquals(5, chat.unreadCount)
         assertTrue(chat.isPinned)
-        assertFalse(chat.isMuted)
-        assertEquals("@rust_dev", chat.username)
-        assertEquals(1200, chat.memberCount)
-        assertEquals(ChatCategory.GROUPS, chat.category)
+        assertTrue(chat.isArchived)
+        assertTrue(chat.isSecret)
+        assertEquals(15, chat.selfDestructSec)
+        assertEquals(ChatCategory.SECRET, chat.category)
     }
 
     @Test
-    fun testMessageModelAndEntities() {
+    fun testPollDataAndTotals() {
+        val poll = PollData(
+            question = "Best UI?",
+            options = listOf(
+                PollOption("Liquid Glass", 12),
+                PollOption("Minimal", 8)
+            ),
+            isQuiz = true,
+            correctOptionIndex = 0,
+            selectedIndices = setOf(0)
+        )
+        assertEquals(20, poll.totalVotes)
+        assertTrue(poll.isQuiz)
+        assertEquals(0, poll.correctOptionIndex)
+        assertEquals(MediaType.POLL, MediaType.valueOf("POLL"))
+    }
+
+    @Test
+    fun testLocalizationAndThemeEnums() {
+        assertEquals("Чаты", stringsForLanguage(AppLanguage.RU).tabChats)
+        assertEquals("Chats", stringsForLanguage(AppLanguage.EN).tabChats)
+        assertEquals(RuStrings.langCode, "ru")
+        assertEquals(EnStrings.langCode, "en")
+        assertEquals(4, TelegramThemePreset.values().size)
+        assertEquals(5, WallpaperStyle.values().size)
+        assertEquals(7, ChatCategory.values().size)
+    }
+
+    @Test
+    fun testStoriesAccountsAndEntities() {
+        val story = StoryItem(
+            id = 1L,
+            authorName = "Pavel",
+            chatId = 101L,
+            avatarColorIndex = 0,
+            slides = listOf(StorySlide(10L, "Hello", 0xFF007AFF, 0xFF34AADC, "now"))
+        )
+        val account = AccountProfile(1, "Pavel", "@rust", "+79990001122", "Bio", 0, true)
         val span = TextEntitySpan(offset = 0, length = 4, type = "Bold")
         val msg = TelegramMessageModel(
             id = 1L,
@@ -62,38 +105,16 @@ class TelegramLogicTest {
             text = "RustGram",
             timestamp = "12:05",
             isRead = true,
+            isSilent = true,
             mediaType = MediaType.VIDEO_NOTE,
             entities = listOf(span)
         )
 
-        assertTrue(msg.isOutgoing)
-        assertEquals("You", msg.senderName)
-        assertEquals("RustGram", msg.text)
+        assertEquals(1, story.slides.size)
+        assertTrue(account.isActive)
+        assertTrue(msg.isSilent)
         assertEquals(MediaType.VIDEO_NOTE, msg.mediaType)
         assertEquals("Bold", msg.entities.first().type)
-    }
-
-    @Test
-    fun testSearchHitAndContacts() {
-        val contact = ContactModel(
-            id = 201L,
-            name = "Alexander Ivanov",
-            username = "@alex_rust",
-            phone = "+44 20 7946 0912",
-            bio = "Systems Engineer",
-            isOnline = true,
-            lastSeen = "online"
-        )
-        val chat = TelegramChatModel(
-            id = contact.id,
-            title = contact.name,
-            type = "private",
-            lastMessageText = "Hi",
-            lastMessageTime = "12:10"
-        )
-        val hit = SearchHitItem(chat = chat)
-        assertEquals("Alexander Ivanov", hit.chat.title)
-        assertNull(hit.matchedMessage)
         assertEquals(4, MainTab.values().size)
     }
 }

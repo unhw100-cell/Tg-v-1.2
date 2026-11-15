@@ -14,13 +14,9 @@
     <!-- Android 13+ / 16 Notification permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Foreground service for reliable Telegram background sync -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
     <application
         android:name=".RustGramApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -41,10 +37,6 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name=".service.TelegramSyncService"
-            android:foregroundServiceType="dataSync"
-            android:exported="false" />
 
     </application>
 

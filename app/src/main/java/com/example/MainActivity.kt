@@ -1,7 +1,6 @@
 package com.example
 
-import android.content.Intent
-import android.os.Build
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -12,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.AccountCircle
@@ -25,18 +25,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import com.example.service.TelegramSyncService
+import androidx.core.view.WindowCompat
 import com.example.tdlib.MainTab
 import com.example.tdlib.TdAuthState
 import com.example.tdlib.TelegramChatModel
+import com.example.tdlib.TelegramThemePreset
+import com.example.ui.components.liquidGlass
+import com.example.ui.i18n.LocalAppStrings
+import com.example.ui.i18n.stringsForLanguage
 import com.example.ui.screens.*
-import com.example.ui.theme.IosDarkTabBar
-import com.example.ui.theme.IosLightTabBar
 import com.example.ui.theme.RustGramTheme
 
 sealed class Screen {
@@ -45,6 +47,8 @@ sealed class Screen {
     data class ChatDetail(val chat: TelegramChatModel) : Screen()
     data class Profile(val chat: TelegramChatModel) : Screen()
     object CreateChat : Screen()
+    object ThemeConstructor : Screen()
+    object ProxySettings : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -52,21 +56,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        try {
-            val serviceIntent = Intent(this, TelegramSyncService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ContextCompat.startForegroundService(this, serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-        } catch (_: Exception) {
-        }
-
         setContent {
             val repository = RustGramApp.instance.repository
-            val isDarkMode by repository.isDarkMode.collectAsState()
+            val language by repository.language.collectAsState()
+            val themePreset by repository.themePreset.collectAsState()
+            val accentIndex by repository.accentIndex.collectAsState()
             val authState by repository.authState.collectAsState()
             val chats by repository.chats.collectAsState()
+            val isAppLocked by repository.isAppLocked.collectAsState()
+
+            val isDark = themePreset == TelegramThemePreset.TINTED_DARK || themePreset == TelegramThemePreset.OLED_NIGHT
+            val view = LocalView.current
+            if (!view.isInEditMode) {
+                SideEffect {
+                    val window = (view.context as? Activity)?.window ?: return@SideEffect
+                    val controller = WindowCompat.getInsetsController(window, view)
+                    controller.isAppearanceLightStatusBars = !isDark
+                    controller.isAppearanceLightNavigationBars = !isDark
+                }
+            }
 
             var currentScreen by remember {
                 mutableStateOf<Screen>(
@@ -83,32 +91,34 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            RustGramTheme(darkTheme = isDarkMode) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                ) {
-                    when (val screen = currentScreen) {
-                        is Screen.Auth -> {
-                            AuthScreen(
-                                repository = repository,
-                                onAuthSuccess = { currentScreen = Screen.MainTabs(MainTab.CHATS) }
-                            )
-                        }
+            CompositionLocalProvider(LocalAppStrings provides stringsForLanguage(language)) {
+                val strings = LocalAppStrings.current
 
-                        is Screen.MainTabs -> {
-                            if (screen.activeTab != MainTab.CHATS) {
-                                BackHandler {
-                                    currentScreen = Screen.MainTabs(MainTab.CHATS)
+                RustGramTheme(themePreset = themePreset, accentIndex = accentIndex) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                    ) {
+                        when (val screen = currentScreen) {
+                            is Screen.Auth -> {
+                                AuthScreen(
+                                    repository = repository,
+                                    onAuthSuccess = { currentScreen = Screen.MainTabs(MainTab.CHATS) }
+                                )
+                            }
+
+                            is Screen.MainTabs -> {
+                                if (screen.activeTab != MainTab.CHATS) {
+                                    BackHandler {
+                                        currentScreen = Screen.MainTabs(MainTab.CHATS)
+                                    }
                                 }
-                            }
-                            val totalUnread = remember(chats) {
-                                chats.sumOf { it.unreadCount }
-                            }
+                                val totalUnread = remember(chats) {
+                                    chats.filter { !it.isArchived }.sumOf { it.unreadCount }
+                                }
 
-                            Column(modifier = Modifier.fillMaxSize()) {
-                                Box(modifier = Modifier.weight(1f)) {
+                                Box(modifier = Modifier.fillMaxSize()) {
                                     when (screen.activeTab) {
                                         MainTab.CONTACTS -> ContactsScreen(
                                             repository = repository,
@@ -144,81 +154,116 @@ class MainActivity : ComponentActivity() {
                                             onOpenCalls = {
                                                 currentScreen = Screen.MainTabs(MainTab.CALLS)
                                             },
+                                            onOpenThemeConstructor = {
+                                                currentScreen = Screen.ThemeConstructor
+                                            },
+                                            onOpenProxySettings = {
+                                                currentScreen = Screen.ProxySettings
+                                            },
                                             onLogOut = {
                                                 currentScreen = Screen.Auth
                                             }
                                         )
                                     }
-                                }
 
-                                IosBottomTabBar(
-                                    activeTab = screen.activeTab,
-                                    unreadCount = totalUnread,
-                                    isDarkMode = isDarkMode,
-                                    onSelectTab = { tab ->
-                                        currentScreen = Screen.MainTabs(tab)
+                                    // Floating iPhone Liquid Glass Bottom Capsule Tab Bar
+                                    LiquidGlassBottomTabBar(
+                                        activeTab = screen.activeTab,
+                                        unreadCount = totalUnread,
+                                        contactsLabel = strings.tabContacts,
+                                        callsLabel = strings.tabCalls,
+                                        chatsLabel = strings.tabChats,
+                                        settingsLabel = strings.tabSettings,
+                                        onSelectTab = { tab ->
+                                            currentScreen = Screen.MainTabs(tab)
+                                        },
+                                        modifier = Modifier.align(Alignment.BottomCenter)
+                                    )
+                                }
+                            }
+
+                            is Screen.ChatDetail -> {
+                                BackHandler {
+                                    repository.clearActiveChat()
+                                    currentScreen = Screen.MainTabs(MainTab.CHATS)
+                                }
+                                ChatDetailScreen(
+                                    repository = repository,
+                                    chat = screen.chat,
+                                    onBack = {
+                                        repository.clearActiveChat()
+                                        currentScreen = Screen.MainTabs(MainTab.CHATS)
+                                    },
+                                    onOpenProfile = {
+                                        currentScreen = Screen.Profile(screen.chat)
                                     }
+                                )
+                            }
+
+                            is Screen.Profile -> {
+                                BackHandler {
+                                    currentScreen = Screen.ChatDetail(screen.chat)
+                                }
+                                ProfileScreen(
+                                    repository = repository,
+                                    chat = screen.chat,
+                                    onBack = { currentScreen = Screen.ChatDetail(screen.chat) },
+                                    onStartCall = { isVideo ->
+                                        activeCallOverlay = screen.chat.title to isVideo
+                                    }
+                                )
+                            }
+
+                            is Screen.CreateChat -> {
+                                BackHandler {
+                                    currentScreen = Screen.MainTabs(MainTab.CHATS)
+                                }
+                                CreateChatScreen(
+                                    repository = repository,
+                                    onBack = { currentScreen = Screen.MainTabs(MainTab.CHATS) },
+                                    onChatCreated = { newChat ->
+                                        repository.setActiveChat(newChat)
+                                        currentScreen = Screen.ChatDetail(newChat)
+                                    }
+                                )
+                            }
+
+                            is Screen.ThemeConstructor -> {
+                                BackHandler {
+                                    currentScreen = Screen.MainTabs(MainTab.SETTINGS)
+                                }
+                                ThemeConstructorScreen(
+                                    repository = repository,
+                                    onBack = { currentScreen = Screen.MainTabs(MainTab.SETTINGS) }
+                                )
+                            }
+
+                            is Screen.ProxySettings -> {
+                                BackHandler {
+                                    currentScreen = Screen.MainTabs(MainTab.SETTINGS)
+                                }
+                                ProxySettingsScreen(
+                                    tdClient = repository.tdClient,
+                                    onBack = { currentScreen = Screen.MainTabs(MainTab.SETTINGS) }
                                 )
                             }
                         }
 
-                        is Screen.ChatDetail -> {
-                            BackHandler {
-                                repository.clearActiveChat()
-                                currentScreen = Screen.MainTabs(MainTab.CHATS)
-                            }
-                            ChatDetailScreen(
-                                repository = repository,
-                                chat = screen.chat,
-                                onBack = {
-                                    repository.clearActiveChat()
-                                    currentScreen = Screen.MainTabs(MainTab.CHATS)
-                                },
-                                onOpenProfile = {
-                                    currentScreen = Screen.Profile(screen.chat)
+                        activeCallOverlay?.let { (callerName, isVideo) ->
+                            ActiveCallModal(
+                                callerName = callerName,
+                                initialVideo = isVideo,
+                                onEndCall = { usedVideo ->
+                                    repository.logCall(callerName, usedVideo)
+                                    activeCallOverlay = null
                                 }
                             )
                         }
 
-                        is Screen.Profile -> {
-                            BackHandler {
-                                currentScreen = Screen.ChatDetail(screen.chat)
-                            }
-                            ProfileScreen(
-                                repository = repository,
-                                chat = screen.chat,
-                                onBack = { currentScreen = Screen.ChatDetail(screen.chat) },
-                                onStartCall = { isVideo ->
-                                    activeCallOverlay = screen.chat.title to isVideo
-                                }
-                            )
-                        }
-
-                        is Screen.CreateChat -> {
-                            BackHandler {
-                                currentScreen = Screen.MainTabs(MainTab.CHATS)
-                            }
-                            CreateChatScreen(
-                                repository = repository,
-                                onBack = { currentScreen = Screen.MainTabs(MainTab.CHATS) },
-                                onChatCreated = { newChat ->
-                                    repository.setActiveChat(newChat)
-                                    currentScreen = Screen.ChatDetail(newChat)
-                                }
-                            )
+                        if (isAppLocked) {
+                            PasscodeLockOverlay(repository = repository)
                         }
                     }
-                }
-
-                activeCallOverlay?.let { (callerName, isVideo) ->
-                    ActiveCallModal(
-                        callerName = callerName,
-                        initialVideo = isVideo,
-                        onEndCall = { usedVideo ->
-                            repository.logCall(callerName, usedVideo)
-                            activeCallOverlay = null
-                        }
-                    )
                 }
             }
         }
@@ -226,33 +271,35 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun IosBottomTabBar(
+private fun LiquidGlassBottomTabBar(
     activeTab: MainTab,
     unreadCount: Int,
-    isDarkMode: Boolean,
-    onSelectTab: (MainTab) -> Unit
+    contactsLabel: String,
+    callsLabel: String,
+    chatsLabel: String,
+    settingsLabel: String,
+    onSelectTab: (MainTab) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val barBg = if (isDarkMode) IosDarkTabBar else IosLightTabBar
-
-    Column(
-        modifier = Modifier
+    Box(
+        modifier = modifier
             .fillMaxWidth()
-            .background(barBg)
             .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
     ) {
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
-            thickness = 0.5.dp
-        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp),
+                .widthIn(max = 520.dp)
+                .height(62.dp)
+                .liquidGlass(shape = RoundedCornerShape(50), strong = true, elevation = 14.dp)
+                .padding(horizontal = 6.dp, vertical = 5.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IosTabItem(
-                label = "Contacts",
+            LiquidTabItem(
+                label = contactsLabel,
                 selected = activeTab == MainTab.CONTACTS,
                 selectedIcon = Icons.Filled.AccountCircle,
                 unselectedIcon = Icons.Outlined.AccountCircle,
@@ -260,8 +307,8 @@ private fun IosBottomTabBar(
                 testTag = "tab_contacts",
                 onClick = { onSelectTab(MainTab.CONTACTS) }
             )
-            IosTabItem(
-                label = "Calls",
+            LiquidTabItem(
+                label = callsLabel,
                 selected = activeTab == MainTab.CALLS,
                 selectedIcon = Icons.Filled.Call,
                 unselectedIcon = Icons.Outlined.Call,
@@ -269,8 +316,8 @@ private fun IosBottomTabBar(
                 testTag = "tab_calls",
                 onClick = { onSelectTab(MainTab.CALLS) }
             )
-            IosTabItem(
-                label = "Chats",
+            LiquidTabItem(
+                label = chatsLabel,
                 selected = activeTab == MainTab.CHATS,
                 selectedIcon = Icons.Filled.ChatBubble,
                 unselectedIcon = Icons.Outlined.ChatBubbleOutline,
@@ -278,8 +325,8 @@ private fun IosBottomTabBar(
                 testTag = "tab_chats",
                 onClick = { onSelectTab(MainTab.CHATS) }
             )
-            IosTabItem(
-                label = "Settings",
+            LiquidTabItem(
+                label = settingsLabel,
                 selected = activeTab == MainTab.SETTINGS,
                 selectedIcon = Icons.Filled.Settings,
                 unselectedIcon = Icons.Outlined.Settings,
@@ -292,7 +339,7 @@ private fun IosBottomTabBar(
 }
 
 @Composable
-private fun RowScope.IosTabItem(
+private fun RowScope.LiquidTabItem(
     label: String,
     selected: Boolean,
     selectedIcon: ImageVector,
@@ -307,6 +354,11 @@ private fun RowScope.IosTabItem(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                else Color.Transparent
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -323,7 +375,7 @@ private fun RowScope.IosTabItem(
                 tint = tint,
                 modifier = Modifier
                     .padding(horizontal = 8.dp)
-                    .size(24.dp)
+                    .size(22.dp)
             )
             if (badgeCount > 0) {
                 Box(
@@ -344,12 +396,13 @@ private fun RowScope.IosTabItem(
                 }
             }
         }
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(1.dp))
         Text(
             text = label,
             fontSize = 10.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = tint
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = tint,
+            maxLines = 1
         )
     }
 }

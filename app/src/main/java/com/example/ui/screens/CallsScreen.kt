@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,6 +12,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.automirrored.filled.CallReceived
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,23 +28,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.repository.TelegramRepository
 import com.example.tdlib.CallHistoryItem
+import com.example.ui.components.LiquidGlassBackdrop
+import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.liquidGlass
+import com.example.ui.i18n.LocalAppStrings
 import com.example.ui.theme.TelegramIosRed
 import com.example.ui.theme.TelegramOnlineGreen
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallsScreen(
     repository: TelegramRepository,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalAppStrings.current
     val calls by repository.calls.collectAsState()
     val contacts by repository.contacts.collectAsState()
 
     var showMissedOnly by remember { mutableStateOf(false) }
     var isEditMode by remember { mutableStateOf(false) }
     val hiddenCallIds = remember { mutableStateListOf<Long>() }
-    var activeCall by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // callerName to isVideo
+    var activeCall by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var showNewCallPicker by remember { mutableStateOf(false) }
 
     val filteredCalls = remember(calls, showMissedOnly, hiddenCallIds.size) {
@@ -49,40 +56,50 @@ fun CallsScreen(
             .filter { if (showMissedOnly) it.isMissed else true }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // Telegram iOS Centered Header with All | Missed Segmented Control
-        CenterAlignedTopAppBar(
-            navigationIcon = {
+    LiquidGlassBackdrop(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // Floating Liquid Glass Top Header with All | Missed Pill
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .liquidGlass(shape = RoundedCornerShape(50), strong = true)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 TextButton(
                     onClick = { isEditMode = !isEditMode },
                     modifier = Modifier.testTag("calls_edit_btn")
                 ) {
                     Text(
-                        text = if (isEditMode) "Done" else "Edit",
+                        text = if (isEditMode) strings.done else strings.edit,
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 17.sp
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
-            },
-            title = {
+
                 Row(
                     modifier = Modifier
-                        .width(170.dp)
-                        .clip(RoundedCornerShape(9.dp))
+                        .width(176.dp)
+                        .clip(RoundedCornerShape(50))
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                        .padding(2.dp)
+                        .padding(3.dp)
                 ) {
-                    listOf("All" to false, "Missed" to true).forEach { (label, missedFlag) ->
+                    listOf(strings.callsAll to false, strings.callsMissed to true).forEach { (label, missedFlag) ->
                         val selected = showMissedOnly == missedFlag
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(if (selected) MaterialTheme.colorScheme.surface else Color.Transparent)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.surface else Color.Transparent
+                                )
                                 .clickable { showMissedOnly = missedFlag }
                                 .padding(vertical = 5.dp),
                             contentAlignment = Alignment.Center
@@ -96,54 +113,48 @@ fun CallsScreen(
                         }
                     }
                 }
-            },
-            actions = {
+
                 IconButton(
                     onClick = { showNewCallPicker = true },
                     modifier = Modifier.testTag("new_call_btn")
                 ) {
                     Icon(
                         Icons.Default.Call,
-                        contentDescription = "New Call",
+                        contentDescription = strings.startEncryptedCall,
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
-            },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            )
-        )
-
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-            thickness = 0.5.dp
-        )
-
-        if (filteredCalls.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (showMissedOnly) "No missed calls" else "No recent calls",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 15.sp
-                )
             }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(filteredCalls, key = { it.id }) { call ->
-                    IosCallRow(
-                        call = call,
-                        isEditMode = isEditMode,
-                        onDelete = { hiddenCallIds.add(call.id) },
-                        onClick = { activeCall = call.callerName to call.isVideo }
+
+            if (filteredCalls.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (showMissedOnly) strings.noMissedCalls else strings.noRecentCalls,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 15.sp
                     )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                        thickness = 0.5.dp,
-                        modifier = Modifier.padding(start = 74.dp)
-                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredCalls, key = { it.id }) { call ->
+                        LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+                            IosCallRow(
+                                call = call,
+                                isEditMode = isEditMode,
+                                outgoingLabel = strings.outgoing,
+                                incomingLabel = strings.incoming,
+                                onDelete = { hiddenCallIds.add(call.id) },
+                                onClick = { activeCall = call.callerName to call.isVideo }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -152,7 +163,7 @@ fun CallsScreen(
     if (showNewCallPicker) {
         AlertDialog(
             onDismissRequest = { showNewCallPicker = false },
-            title = { Text("Start Encrypted Call", fontWeight = FontWeight.SemiBold) },
+            title = { Text(strings.startEncryptedCall, fontWeight = FontWeight.SemiBold) },
             text = {
                 LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
                     items(contacts) { contact ->
@@ -181,20 +192,20 @@ fun CallsScreen(
                                 showNewCallPicker = false
                                 activeCall = contact.name to false
                             }) {
-                                Icon(Icons.Default.Call, contentDescription = "Voice Call", tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.Call, contentDescription = strings.callAction, tint = MaterialTheme.colorScheme.primary)
                             }
                             IconButton(onClick = {
                                 showNewCallPicker = false
                                 activeCall = contact.name to true
                             }) {
-                                Icon(Icons.Default.Videocam, contentDescription = "Video Call", tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.Videocam, contentDescription = strings.videoAction, tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showNewCallPicker = false }) { Text("Cancel") }
+                TextButton(onClick = { showNewCallPicker = false }) { Text(strings.cancel) }
             }
         )
     }
@@ -215,6 +226,8 @@ fun CallsScreen(
 private fun IosCallRow(
     call: CallHistoryItem,
     isEditMode: Boolean,
+    outgoingLabel: String,
+    incomingLabel: String,
     onDelete: () -> Unit,
     onClick: () -> Unit
 ) {
@@ -222,12 +235,12 @@ private fun IosCallRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isEditMode) {
             IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.RemoveCircle, contentDescription = "Delete call", tint = TelegramIosRed)
+                Icon(Icons.Default.RemoveCircle, contentDescription = "Delete", tint = TelegramIosRed)
             }
             Spacer(Modifier.width(8.dp))
         }
@@ -236,11 +249,8 @@ private fun IosCallRow(
             modifier = Modifier
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF64D2FF), Color(0xFF007AFF))
-                    )
-                ),
+                .background(Brush.verticalGradient(listOf(Color(0xFF64D2FF), Color(0xFF007AFF))))
+                .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -271,7 +281,7 @@ private fun IosCallRow(
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    text = if (call.isOutgoing) "Outgoing (${call.durationText})" else "Incoming (${call.durationText})",
+                    text = if (call.isOutgoing) "$outgoingLabel (${call.durationText})" else "$incomingLabel (${call.durationText})",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -280,13 +290,13 @@ private fun IosCallRow(
 
         Text(
             text = call.timestamp.substringAfter(", ").ifBlank { call.timestamp },
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(8.dp))
         Icon(
             if (call.isVideo) Icons.Default.Videocam else Icons.Default.Call,
-            contentDescription = "Call",
+            contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(20.dp)
         )
@@ -299,6 +309,7 @@ fun ActiveCallModal(
     initialVideo: Boolean,
     onEndCall: (Boolean) -> Unit
 ) {
+    val strings = LocalAppStrings.current
     var seconds by remember { mutableIntStateOf(0) }
     var isMuted by remember { mutableStateOf(false) }
     var isSpeaker by remember { mutableStateOf(false) }
@@ -332,9 +343,7 @@ fun ActiveCallModal(
                     modifier = Modifier
                         .size(80.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.verticalGradient(listOf(Color(0xFF34AADC), Color(0xFF007AFF)))
-                        ),
+                        .background(Brush.verticalGradient(listOf(Color(0xFF34AADC), Color(0xFF007AFF)))),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -347,7 +356,7 @@ fun ActiveCallModal(
                 Spacer(Modifier.height(10.dp))
                 Text(callerName, fontSize = 21.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    text = if (seconds < 2) "Ringing…" else "Encrypted • $timerText",
+                    text = if (seconds < 2) strings.ringing else "${strings.encryptedCallPrefix} $timerText",
                     fontSize = 14.sp,
                     color = TelegramOnlineGreen
                 )
@@ -364,28 +373,28 @@ fun ActiveCallModal(
                     FilledIconButton(onClick = { isMuted = !isMuted }) {
                         Icon(
                             if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = "Mute"
+                            contentDescription = strings.muteMic
                         )
                     }
-                    Text("Mute", fontSize = 11.sp)
+                    Text(strings.muteMic, fontSize = 11.sp)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     FilledIconButton(onClick = { isSpeaker = !isSpeaker }) {
                         Icon(
-                            if (isSpeaker) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
-                            contentDescription = "Speaker"
+                            if (isSpeaker) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            contentDescription = strings.speaker
                         )
                     }
-                    Text("Speaker", fontSize = 11.sp)
+                    Text(strings.speaker, fontSize = 11.sp)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     FilledIconButton(onClick = { isVideo = !isVideo }) {
                         Icon(
                             if (isVideo) Icons.Default.Videocam else Icons.Default.VideocamOff,
-                            contentDescription = "Video"
+                            contentDescription = strings.video
                         )
                     }
-                    Text("Video", fontSize = 11.sp)
+                    Text(strings.video, fontSize = 11.sp)
                 }
             }
         },
@@ -393,7 +402,7 @@ fun ActiveCallModal(
             Button(
                 onClick = { onEndCall(isVideo) },
                 colors = ButtonDefaults.buttonColors(containerColor = TelegramIosRed),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
@@ -401,7 +410,7 @@ fun ActiveCallModal(
             ) {
                 Icon(Icons.Default.CallEnd, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("End Call", fontWeight = FontWeight.SemiBold)
+                Text(strings.endCall, fontWeight = FontWeight.SemiBold)
             }
         }
     )

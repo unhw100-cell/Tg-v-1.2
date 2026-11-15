@@ -13,6 +13,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * TDLib client wrapper communicating through the Rust JNI bridge (`librustgram_integration.so`),
@@ -26,6 +27,7 @@ class TdClient(private val context: Context) {
     private var clientId: Int = -1
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var receiveJob: Job? = null
+    private val requestCounter = AtomicLong(1L)
 
     private val _updates = MutableSharedFlow<JSONObject>(extraBufferCapacity = 64)
     val updates: SharedFlow<JSONObject> = _updates.asSharedFlow()
@@ -76,15 +78,22 @@ class TdClient(private val context: Context) {
         }
     }
 
-    fun send(request: JSONObject) {
-        if (clientId != -1 && NativeBridge.isRustCoreLoaded) {
-            try {
-                NativeBridge.td_send(clientId, request.toString())
-            } catch (e: Throwable) {
-                Log.e(TAG, "td_send failed: ${e.message}", e)
-            }
-        } else {
-            Log.d(TAG, "Fallback TDLib send: $request")
+    /** Returns true only when the request was handed to the real TDLib client. */
+    fun send(request: JSONObject): Boolean {
+        if (!request.has("@extra")) {
+            request.put("@extra", "rustgram-${requestCounter.getAndIncrement()}")
+        }
+        if (clientId == -1 || !NativeBridge.isRustCoreLoaded || !isNativeTdLibLinked) {
+            Log.w(TAG, "TDLib unavailable; request not sent (type=${request.optString("@type", "unknown")})")
+            return false
+        }
+        return try {
+            // Never log the JSON payload: authentication and proxy requests may contain secrets.
+            NativeBridge.td_send(clientId, request.toString())
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "td_send failed: ${e.message}", e)
+            false
         }
     }
 

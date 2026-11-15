@@ -43,6 +43,10 @@ object NativeBridge {
     external fun td_execute(request: String): String?
     external fun td_set_log_message_callback(maxVerbosityLevel: Int, callback: Any?)
     external fun isTdLibNativeLinked(): Boolean
+    // Present in the rebuilt Rust bridge. Older bundled native libraries are handled by UI fallback.
+    external fun buildProxyRequest(operation: String, configJson: String, proxyId: Int): String?
+    // Present in the rebuilt Rust bridge; older checked-in native libraries use Kotlin fallback builders.
+    external fun buildMessagingRequest(operation: String, payloadJson: String): String?
 
     // Rust Core Engine JNI exports
     external fun initCore(apiId: Int, dbPath: String): Boolean

@@ -24,7 +24,14 @@ impl RustGramDatabase {
     }
 
     pub fn open(path: &str) -> Result<Self> {
+        if path.trim().is_empty() {
+            return Err(RustGramError::InvalidParameter(
+                "database path must not be empty".into(),
+            ));
+        }
         let conn = Connection::open(path).map_err(|e| RustGramError::Database(e.to_string()))?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| RustGramError::Database(e.to_string()))?;
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
@@ -33,7 +40,10 @@ impl RustGramDatabase {
     }
 
     fn init_tables(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustGramError::Database(format!("database lock poisoned: {e}")))?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS chats (
@@ -67,7 +77,10 @@ impl RustGramDatabase {
     }
 
     pub fn save_chat(&self, chat: &TelegramChat) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustGramError::Database(format!("database lock poisoned: {e}")))?;
         let type_str = match chat.chat_type {
             ChatType::Private => "private",
             ChatType::BasicGroup => "group",
@@ -94,7 +107,10 @@ impl RustGramDatabase {
     }
 
     pub fn get_all_chats(&self) -> Result<Vec<TelegramChat>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustGramError::Database(format!("database lock poisoned: {e}")))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, title, chat_type, unread_count, is_pinned, is_muted, avatar_path
@@ -141,7 +157,10 @@ impl RustGramDatabase {
     }
 
     pub fn save_message(&self, msg: &TelegramMessage) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustGramError::Database(format!("database lock poisoned: {e}")))?;
         let content_json = serde_json::to_string(&msg.content)
             .map_err(|e| RustGramError::Serialization(e.to_string()))?;
 
@@ -165,7 +184,10 @@ impl RustGramDatabase {
     }
 
     pub fn delete_message(&self, chat_id: ChatId, msg_id: MessageId) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustGramError::Database(format!("database lock poisoned: {e}")))?;
         conn.execute(
             "DELETE FROM messages WHERE chat_id = ?1 AND id = ?2",
             params![chat_id.0, msg_id.0],
@@ -175,7 +197,10 @@ impl RustGramDatabase {
     }
 
     pub fn get_chat_messages(&self, chat_id: ChatId, limit: u32) -> Result<Vec<TelegramMessage>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustGramError::Database(format!("database lock poisoned: {e}")))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, chat_id, sender_id, sender_name, date, is_outgoing, is_read, content_json
@@ -184,7 +209,7 @@ impl RustGramDatabase {
             .map_err(|e| RustGramError::Database(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![chat_id.0, limit], |row| Self::map_message_row(row))
+            .query_map(params![chat_id.0, limit], Self::map_message_row)
             .map_err(|e| RustGramError::Database(e.to_string()))?;
 
         let mut messages = Vec::new();
@@ -195,7 +220,10 @@ impl RustGramDatabase {
     }
 
     pub fn search_messages(&self, query: &str, limit: u32) -> Result<Vec<TelegramMessage>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustGramError::Database(format!("database lock poisoned: {e}")))?;
         let pattern = format!("%{}%", query);
         let mut stmt = conn
             .prepare(
@@ -206,7 +234,7 @@ impl RustGramDatabase {
             .map_err(|e| RustGramError::Database(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![pattern, limit], |row| Self::map_message_row(row))
+            .query_map(params![pattern, limit], Self::map_message_row)
             .map_err(|e| RustGramError::Database(e.to_string()))?;
 
         let mut messages = Vec::new();
@@ -226,8 +254,8 @@ impl RustGramDatabase {
         let is_read: i32 = row.get(6)?;
         let content_json: String = row.get(7)?;
 
-        let content: MessageContent = serde_json::from_str(&content_json)
-            .unwrap_or(MessageContent::Text {
+        let content: MessageContent =
+            serde_json::from_str(&content_json).unwrap_or(MessageContent::Text {
                 text: "[Unknown format]".into(),
             });
 
@@ -287,7 +315,9 @@ mod tests {
         };
         db.save_message(&msg).expect("save message");
 
-        let loaded = db.get_chat_messages(ChatId(999), 10).expect("load messages");
+        let loaded = db
+            .get_chat_messages(ChatId(999), 10)
+            .expect("load messages");
         assert_eq!(loaded.len(), 1);
 
         let search_hits = db.search_messages("RustGram", 10).expect("search messages");

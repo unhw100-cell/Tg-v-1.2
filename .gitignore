@@ -1,18 +1,28 @@
-*.iml
-.gradle
-.kotlin
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Android / Gradle
+.gradle/
+**/build/
+.kotlin/
 local.properties
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild/
+captures/
+.DS_Store
+
+# Rust
+target/
+**/target/
+**/*.rs.bk
+
+# Local secrets and signing material
 .env
+.env.*.local
+!.env.example
+*.jks
+*.keystore
 debug.keystore
+
+# IDE / OS
+.vscode/
+Thumbs.db

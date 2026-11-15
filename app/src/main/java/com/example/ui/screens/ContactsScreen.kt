@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,9 +27,13 @@ import androidx.compose.ui.unit.sp
 import com.example.repository.TelegramRepository
 import com.example.tdlib.ContactModel
 import com.example.tdlib.TelegramChatModel
+import com.example.ui.components.LiquidGlassBackdrop
+import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.LiquidGlassSectionDivider
+import com.example.ui.components.liquidGlass
+import com.example.ui.i18n.LocalAppStrings
 import com.example.ui.theme.TelegramOnlineGreen
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContactsScreen(
     repository: TelegramRepository,
@@ -36,6 +41,7 @@ fun ContactsScreen(
     onCreateNewChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalAppStrings.current
     val contacts by repository.contacts.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var sortByLastSeen by remember { mutableStateOf(true) }
@@ -54,69 +60,67 @@ fun ContactsScreen(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // Telegram iOS Centered Header
-        CenterAlignedTopAppBar(
-            navigationIcon = {
+    LiquidGlassBackdrop(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // Floating Liquid Glass Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .liquidGlass(shape = RoundedCornerShape(50), strong = true)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 TextButton(
                     onClick = { sortByLastSeen = !sortByLastSeen },
                     modifier = Modifier.testTag("contacts_sort_btn")
                 ) {
                     Text(
-                        text = if (sortByLastSeen) "Sort: Status" else "Sort: Name",
+                        text = if (sortByLastSeen) strings.contactsSortStatus else strings.contactsSortName,
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 15.sp
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
-            },
-            title = {
+
                 Text(
-                    text = "Contacts",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 18.sp,
-                    color = MaterialTheme.colorScheme.onBackground
+                    text = strings.tabContacts,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
-            },
-            actions = {
+
                 IconButton(
                     onClick = onCreateNewChat,
                     modifier = Modifier.testTag("contacts_add_btn")
                 ) {
                     Icon(
                         Icons.Default.Add,
-                        contentDescription = "New Contact or Group",
+                        contentDescription = strings.newMessageTitle,
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
-            },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            )
-        )
+            }
 
-        // iOS Rounded Search Bar
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 16.dp, vertical = 6.dp)
-        ) {
+            // Floating Glass Search Capsule
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                    .height(42.dp)
+                    .liquidGlass(shape = RoundedCornerShape(50), strong = false, elevation = 3.dp)
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     Icons.Default.Search,
-                    contentDescription = "Search",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                 )
@@ -124,9 +128,9 @@ fun ContactsScreen(
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     if (searchQuery.isEmpty()) {
                         Text(
-                            text = "Search",
+                            text = strings.searchContactsHint,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 15.sp
+                            fontSize = 14.sp
                         )
                     }
                     BasicTextField(
@@ -150,68 +154,58 @@ fun ContactsScreen(
                     ) {
                         Icon(
                             Icons.Default.Cancel,
-                            contentDescription = "Clear search",
+                            contentDescription = strings.close,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
-        }
 
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-            thickness = 0.5.dp
-        )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 100.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+                        IosContactQuickRow(
+                            icon = Icons.Default.LocationOn,
+                            label = strings.findPeopleNearby,
+                            onClick = { infoBannerText = "Bluetooth & GPS discovery ready." }
+                        )
+                        LiquidGlassSectionDivider()
+                        IosContactQuickRow(
+                            icon = Icons.Default.PersonAdd,
+                            label = strings.inviteFriends,
+                            onClick = { infoBannerText = "https://t.me/rustgram_app" }
+                        )
+                    }
+                }
 
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            item {
-                IosContactQuickRow(
-                    icon = Icons.Default.LocationOn,
-                    label = "Find People Nearby",
-                    onClick = {
-                        infoBannerText = "Nearby discovery requires active Bluetooth & Location permissions."
+                items(displayedContacts, key = { it.id }) { contact ->
+                    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+                        IosContactRow(
+                            contact = contact,
+                            onlineLabel = strings.onlineStatus,
+                            onClick = {
+                                val chat = repository.openOrCreateContactChat(contact)
+                                if (chat != null) onContactClick(chat)
+                            }
+                        )
                     }
-                )
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                    thickness = 0.5.dp,
-                    modifier = Modifier.padding(start = 60.dp)
-                )
-                IosContactQuickRow(
-                    icon = Icons.Default.PersonAdd,
-                    label = "Invite Friends",
-                    onClick = {
-                        infoBannerText = "Share link: https://t.me/rustgram_app"
-                    }
-                )
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                    thickness = 0.5.dp
-                )
-            }
-
-            items(displayedContacts, key = { it.id }) { contact ->
-                IosContactRow(
-                    contact = contact,
-                    onClick = {
-                        val chat = repository.openOrCreateContactChat(contact)
-                        onContactClick(chat)
-                    }
-                )
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                    thickness = 0.5.dp,
-                    modifier = Modifier.padding(start = 74.dp)
-                )
+                }
             }
         }
     }
 
     infoBannerText?.let { msg ->
         AlertDialog(
+            modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
+            shape = RoundedCornerShape(28.dp),
+            colors = AlertDialogDefaults.colors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
             onDismissRequest = { infoBannerText = null },
-            title = { Text("RustGram", fontWeight = FontWeight.SemiBold) },
+            title = { Text(strings.appName, fontWeight = FontWeight.SemiBold) },
             text = { Text(msg) },
             confirmButton = {
                 TextButton(onClick = { infoBannerText = null }) {
@@ -249,9 +243,9 @@ private fun IosContactQuickRow(
         Spacer(Modifier.width(12.dp))
         Text(
             text = label,
-            fontSize = 16.sp,
+            fontSize = 15.sp,
             color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Normal
+            fontWeight = FontWeight.Medium
         )
     }
 }
@@ -259,6 +253,7 @@ private fun IosContactQuickRow(
 @Composable
 private fun IosContactRow(
     contact: ContactModel,
+    onlineLabel: String,
     onClick: () -> Unit
 ) {
     val gradient = remember(contact.id) {
@@ -275,7 +270,7 @@ private fun IosContactRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
             .testTag("contact_item_${contact.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -283,7 +278,8 @@ private fun IosContactRow(
             modifier = Modifier
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Brush.verticalGradient(gradient)),
+                .background(Brush.verticalGradient(gradient))
+                .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -304,7 +300,7 @@ private fun IosContactRow(
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                text = if (contact.isOnline) "online" else contact.lastSeen,
+                text = if (contact.isOnline) onlineLabel else contact.lastSeen,
                 fontSize = 13.sp,
                 color = if (contact.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -313,7 +309,7 @@ private fun IosContactRow(
         if (contact.isOnline) {
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(9.dp)
                     .clip(CircleShape)
                     .background(TelegramOnlineGreen)
             )
