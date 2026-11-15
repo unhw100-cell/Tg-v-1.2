@@ -422,7 +422,7 @@ fun SettingsScreen(
         AlertDialog(
             modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
             shape = RoundedCornerShape(28.dp),
-            colors = AlertDialogDefaults.colors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
             onDismissRequest = { showEditProfileDialog = false },
             title = { Text(strings.editProfile, fontWeight = FontWeight.SemiBold) },
             text = {
@@ -488,7 +488,7 @@ fun SettingsScreen(
         AlertDialog(
             modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
             shape = RoundedCornerShape(28.dp),
-            colors = AlertDialogDefaults.colors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
             onDismissRequest = { showAddAccountDialog = false },
             title = { Text(strings.addAccount, fontWeight = FontWeight.SemiBold) },
             text = {
@@ -535,7 +535,7 @@ fun SettingsScreen(
         AlertDialog(
             modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
             shape = RoundedCornerShape(28.dp),
-            colors = AlertDialogDefaults.colors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
             onDismissRequest = { showPrivacyDialog = false },
             title = { Text(strings.privacySecurity, fontWeight = FontWeight.SemiBold) },
             text = {
@@ -555,7 +555,7 @@ fun SettingsScreen(
         AlertDialog(
             modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
             shape = RoundedCornerShape(28.dp),
-            colors = AlertDialogDefaults.colors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
             onDismissRequest = { showLogoutDialog = false },
             title = { Text(strings.logOutConfirmTitle) },
             text = { Text(strings.logOutConfirmBody) },

@@ -203,7 +203,7 @@ fun ContactsScreen(
         AlertDialog(
             modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
             shape = RoundedCornerShape(28.dp),
-            colors = AlertDialogDefaults.colors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
             onDismissRequest = { infoBannerText = null },
             title = { Text(strings.appName, fontWeight = FontWeight.SemiBold) },
             text = { Text(msg) },

@@ -31,9 +31,7 @@ fun ApiConfigDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.liquidGlass(shape = RoundedCornerShape(28.dp), strong = true),
         shape = RoundedCornerShape(28.dp),
-        colors = AlertDialogDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
-        ),
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
